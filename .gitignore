@@ -1,0 +1,5 @@
+# Ignore everything except directories, source code, and the .gitignore file
+*
+!*/
+!*.X68
+!.gitignore
