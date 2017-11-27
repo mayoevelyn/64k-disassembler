@@ -12,12 +12,14 @@
 * System equates
 
 stack           EQU     $A000
-currWord        EQU     %0100001000111111
+currWord        EQU     %0000011000111111
 mask1512        EQU     %1111000000000000
 mask0806        EQU     %0000000111000000
 mask1109        EQU     %0000111000000000
+mask1108        EQU     %0000111100000000
 mask0200        EQU     %0000000000000111
 mask0503        EQU     %0000000000111000
+mask0706        EQU     %0000000011000000
                
 * temp print SR
 print
@@ -79,7 +81,24 @@ jmp_table
 * code 0000
 * ADDI
 ******************
-code0000        STOP        #$2700
+code0000
+	MOVE.W  #currWord,D0    * move opcode word to D0
+    ANDI.W  #mask1108,D0    * mask bits 11-8
+    LSR.W   #7,D0
+    LSR.W   #1,D0           * shift D0 8 bits right
+    
+    MOVE.W  #currWord,D4    * move opcode word to D4
+    ANDI.W  #mask0706,D4    * mask bits 7-6
+    LSR.W   #6,D4           * shift D4 6 bits right
+    
+    CMPI.B	#6,D0			* check rest of bits
+    BNE		bad_op			* if not equal, bad opcode
+    LEA		str_addi,A1
+    BSR		print			* load str ADDI to buffer
+    BSR		size2			* handle size
+    LEA		space4,A1
+    BSR		print			* load 4 spaces to buffer
+    JSR		next_word
 
 ******************
 * code 0001
@@ -122,19 +141,19 @@ code0100
 * 011    * MOVEM.L
 * 111    * LEA
 ******************
-    CMPI.W	#$0,D0
+    CMPI.B	#0,D0
     BEQ 	op_clr_b
-    CMPI.W	#$1,D0
+    CMPI.B	#1,D0
     BEQ 	op_0100_001
-    CMPI.W	#$2,D0
+    CMPI.B	#2,D0
     BEQ 	op_0100_010
-    CMPI.W	#$3,D0
+    CMPI.B	#3,D0
     BEQ 	op_movem
-    CMPI.W	#$7,D0
+    CMPI.B	#7,D0
     BEQ 	op_lea
     
 op_clr_b
-	CMPI.W	#1,D1			* check rest of bits
+	CMPI.B	#1,D1			* check rest of bits
 	BNE		bad_op			* quit if bad
 	LEA		str_clr,A1
 	JSR		print			* print CLR
@@ -147,16 +166,18 @@ op_clr_b
 * 111 - NOP,RTS
 ******************
 op_0100_001
-	CMPI.W  #7,D1           * nop or rts
+	CMPI.B  #7,D1           * nop or rts
 	BEQ     nop_or_rts
 	
 * only CLR.W case left
 op_clr_w
-	CMPI.W	#1,D1			* check rest of bits
+	CMPI.B	#1,D1			* check rest of bits
 	BNE		bad_op			* quit if bad
 	LEA		str_clr,A1
 	JSR		print			* print CLR
 	BRA     size_w          * print .W
+	LEA		space5,A1
+	JSR		print			* print 5 spaces
 	JSR		next_word
 	
 nop_or_rts
@@ -167,25 +188,29 @@ nop_or_rts
     ANDI.W  #mask0503,D1    * mask bits 5-3
     LSR.W   #3,D1           * shift 3 bits right
 
-    CMPI.W  #5,D0           * RTS
+    CMPI.B  #5,D0           * RTS
     BEQ     op_rts
 * only NOP case left
 op_nop
-    CMPI.W  #1,D0           * check rest of bits
+    CMPI.B  #1,D0           * check rest of bits
     BNE     bad_op          * if bad
     
-    CMPI.W  #6,D1           * check rest of bits
+    CMPI.B  #6,D1           * check rest of bits
     BNE     bad_op          * if bad
 
 	LEA		str_nop,A1
 	JSR		print			* load NOP to buffer
+	LEA		space7,A1
+	JSR		print			* print 7 spaces
 	JSR		next_word
 
 op_rts
-    CMPI.W  #6,D1           * check rest of bits
+    CMPI.B  #6,D1           * check rest of bits
     BNE     bad_op          * if bad
 	LEA		str_rts,A1
 	JSR		print			* load RTS to buffer
+	LEA		space7,A1
+	JSR		print			* print 7 spaces
 	JSR		next_word
 
 op_0100_010
@@ -449,6 +474,7 @@ dot			DC.B	'.',0
 buffer      DS.B    10      * 10 bytes for opcode + spaces
 
         END     $400 
+
 
 
 
