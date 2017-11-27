@@ -12,40 +12,22 @@
 * System equates
 
 stack           EQU     $A000
-nopex           EQU     %0100111001110001
+currWord        EQU     %0100001000111111
 mask1512        EQU     %1111000000000000
 mask0806        EQU     %0000000111000000
 mask1109        EQU     %0000111000000000
-
-* temp spaces (copied)
-space7
-		LEA		space,A1
-        BSR.S	print
-space6
-		LEA     space,A1
-        BSR.S	print
-space5
-		LEA     space,A1
-        BSR.S	print
-space4
-		LEA     space,A1
-        BSR.S	print
-space3
-		LEA     space,A1
-        BSR.S	print
-space2
-		LEA     space,A1
-        BSR.S	print
-space1
-		LEA     space,A1
-        BSR.S	print
-        RTS
+mask0200        EQU     %0000000000000111
+mask0503        EQU     %0000000000111000
                
 * temp print SR
 print
-		MOVE.B  #14,D0
-        TRAP    #15
-        RTS
+print_loop
+    MOVE.B  (A1)+,(A2)+     * move a byte, and progress both pointers
+
+print_main
+	CMPI.B  #00,(A1)        * check if we hit 00
+	BNE     print_loop      * if not, push next byte to buffer
+    RTS
         
 * temp next word SR
 next_word
@@ -53,16 +35,21 @@ next_word
 
 *****************
 * Program starts here
-* D0 = used for bits 15-12, or 8-6
-* D1 = used for bits 11-9
+* D0 = opcode parts
+* D1 = opcode parts
+* A1 = message
+* A2 = buffer ptr
+* A3 = buffer ptr
 *****************
         ORG     $400
 start
         LEA     stack,SP        * Load the SP
+        LEA     buffer,A2       * load buffer address/init buffer ptr
         LEA     jmp_table,A0    * Index into the table
         CLR.L   D0              * Zero it
-        MOVE.W  #nopex,D0       * We'll play with it here
-        LSR.W   #12,D0          * shift 12 bits to the right
+        MOVE.W  #currWord,D0    * We'll play with it here
+        LSR.W   #7,D0
+        LSR.W   #5,D0           * shift 12 bits to the right
         MULU    #6,D0           * Form offset     
         JSR     0(A0,D0)        * Jump indirect with index
         
@@ -117,12 +104,15 @@ code0011        STOP        #$2700
 * NOP, MOVEM, LEA, CLR, JSR, RTS
 ******************
 code0100
-    MOVE.L  nopex,D0        * move opcode word to D0
-    MOVE.L  nopex,D1        * move opcode word to D1
-    ANDI.L  #mask0806,D0    * mask bits 8-6
-    ANDI.L  #mask1109,D0    * mask bits 11-9
+    MOVE.W  #currWord,D0    * move opcode word to D0
+    ANDI.W  #mask0806,D0    * mask bits 8-6
     LSR.W   #6,D0           * shift D0 6 bits right
-    LSR.W   #9,D1           * shift D1 9 bits right
+    
+    * prep D4 for size
+    MOVE.W  #currWord,D1    * move opcode word to D1
+    ANDI.W  #mask1109,D1    * mask bits 11-9 
+    LSR.W   #7,D1
+    LSR.W   #2,D1           * shift D1 9 bits right
     
 ******************
 * Bits 08-06
@@ -133,34 +123,75 @@ code0100
 * 111    * LEA
 ******************
     CMPI.W	#$0,D0
-    BEQ.S	op_clr_b
+    BEQ 	op_clr_b
     CMPI.W	#$1,D0
-    BEQ.S	op_0100_001
+    BEQ 	op_0100_001
     CMPI.W	#$2,D0
-    BEQ.S	op_0100_010
+    BEQ 	op_0100_010
     CMPI.W	#$3,D0
-    BEQ.S	op_movem_l
+    BEQ 	op_movem
     CMPI.W	#$7,D0
-    BEQ.S	op_lea
+    BEQ 	op_lea
     
 op_clr_b
-	CMPI.W	#$1,D1			* check rest of bits
+	CMPI.W	#1,D1			* check rest of bits
 	BNE		bad_op			* quit if bad
-	LEA		str_clr_b,A1
-	JSR		print			* print CLR.B
+	LEA		str_clr,A1
+	JSR		print			* print CLR
+	BRA     size_b          * print .B
 	JSR		next_word
 
+******************
+* Bits 11-9
+* 001 - CLR.W
+* 111 - NOP,RTS
+******************
 op_0100_001
+	CMPI.W  #7,D1           * nop or rts
+	BEQ     nop_or_rts
 	
-op_nop
+* only CLR.W case left
 op_clr_w
-op_rts
+	CMPI.W	#1,D1			* check rest of bits
+	BNE		bad_op			* quit if bad
+	LEA		str_clr,A1
+	JSR		print			* print CLR
+	BRA     size_w          * print .W
+	JSR		next_word
+	
+nop_or_rts
+    MOVE.W  #currWord,D0    * load currWord to D0
+    ANDI.W  #mask0200,D0    * mask bits 2-0
 
+    MOVE.W  #currWord,D1    * load currWord to D1
+    ANDI.W  #mask0503,D1    * mask bits 5-3
+    LSR.W   #3,D1           * shift 3 bits right
+
+    CMPI.W  #5,D0           * RTS
+    BEQ     op_rts
+* only NOP case left
+op_nop
+    CMPI.W  #1,D0           * check rest of bits
+    BNE     bad_op          * if bad
+    
+    CMPI.W  #6,D1           * check rest of bits
+    BNE     bad_op          * if bad
+
+	LEA		str_nop,A1
+	JSR		print			* load NOP to buffer
+	JSR		next_word
+
+op_rts
+    CMPI.W  #6,D1           * check rest of bits
+    BNE     bad_op          * if bad
+	LEA		str_rts,A1
+	JSR		print			* load RTS to buffer
+	JSR		next_word
 
 op_0100_010
-op_movem_w
+op_movem
 op_jsr
-op_clr_l
+
 
 
 op_movem_l
@@ -176,7 +207,20 @@ code5111
 * code 0101
 * ADDQ
 ******************
-code0101        STOP        #$2700
+code0101
+    MOVE.W  #currWord,D0    * move opcode word to D0
+    ANDI.W  #mask0806,D0    * mask bits 8-6
+    LSR.W   #6,D0           * shift D0 6 bits right
+
+
+******************
+* Bits 08-06
+* 000    * CLR.B
+* 001    * NOP, CLR.W, RTS
+* 010    * MOVEM.W, JSR, CLR.L
+* 011    * MOVEM.L
+* 111    * LEA
+******************
 
 ******************
 * code 0110
@@ -269,7 +313,13 @@ fail
 * If the opcode is not supported or garbage bits
 ******************
 bad_op
-		
+    STOP        #$2700
+
+******************
+* Subroutine: print_data TEMPORARY
+******************
+print_data
+    STOP        #$2700
 		
 ***********************************************************
 * Size subroutines
@@ -284,9 +334,9 @@ bad_op
 *	L - 1
 ******************
 size1
-		CMPI.B	#0,D4		* compare to 0
-		BEQ.S	size_w		* print w
-		BRA		size_l		* print l if not 0
+	CMPI.B	#0,D4		* compare to 0
+	BEQ.S	size_w		* print w
+	BRA		size_l		* print l if not 0
 
 ******************
 * Subroutine: size2
@@ -297,16 +347,16 @@ size1
 *	L - 10
 ******************
 size2
-		* branch to b
-		CMPI.B	#0,D4		* compare to 0
-		BEQ.S	size_b
-		* branch to w
-		CMPI.B	#1,D4		* compare to 1
-		BEQ.S	size_w
-		CMPI.B	#3,D4		* compare to 3
-		BEQ.S	size_w
-		* else print l
-		BRA		size_l
+	* branch to b
+	CMPI.B	#0,D4		* compare to 0
+	BEQ.S	size_b
+	* branch to w
+	CMPI.B	#1,D4		* compare to 1
+	BEQ.S	size_w
+	CMPI.B	#3,D4		* compare to 3
+	BEQ.S	size_w
+	* else print l
+	BRA		size_l
 	
 ******************
 * Subroutine: size3
@@ -317,37 +367,37 @@ size2
 *	L - 010,110,111
 ******************
 size3
-		* branch to b
-		CMPI.B	#0,D4		* compare to 0
-		BEQ.S	size_b
-		CMPI.B	#4,D4		* compare to 4
-		BEQ.S	size_b
-		* branch to w
-		CMPI.B	#1,D4		* compare to 1
-		BEQ.S	size_w
-		CMPI.B	#3,D4		* compare to 3
-		BEQ.S	size_w
-		CMPI.B	#5,D4		* compare to 5
-		BEQ.S	size_w
-		* the rest is l
-		BRA		size_l
+	* branch to b
+	CMPI.B	#0,D4		* compare to 0
+	BEQ.S	size_b
+	CMPI.B	#4,D4		* compare to 4
+	BEQ.S	size_b
+	* branch to w
+	CMPI.B	#1,D4		* compare to 1
+	BEQ.S	size_w
+	CMPI.B	#3,D4		* compare to 3
+	BEQ.S	size_w
+	CMPI.B	#5,D4		* compare to 5
+	BEQ.S	size_w
+	* the rest is l
+	BRA		size_l
 		
 ******************
 * Size printing subroutines
 * Prints b/w/l
 ******************
 size_b
-		LEA		str_b,A1	* size is b
-		JSR		print
-		RTS
+	LEA		str_b,A1	* size is b
+	JSR		print
+	RTS
 size_w
-		LEA		str_w,A1	* size is w
-		JSR		print
-		RTS
+	LEA		str_w,A1	* size is w
+	JSR		print
+	RTS
 size_l
-		LEA		str_l,A1	* size is l
-		JSR		print
-		RTS
+	LEA		str_l,A1	* size is l
+	JSR		print
+	RTS
 ***********************************************************
 
 * Opcode strings
@@ -364,7 +414,6 @@ str_sub   	DC.B	'SUB',0
 str_muls  	DC.B	'MULS',0
 str_divu 	DC.B	'DIVU',0
 str_lea  	DC.B	'LEA',0
-str_movem	DC.B	'MOVEM',0
 str_clr		DC.B	'CLR',0
 str_and	    DC.B	'AND',0
 str_or   	DC.B	'OR',0
@@ -387,10 +436,21 @@ str_w      DC.B    '.W',0
 str_l      DC.B    '.L',0
 
 * Misc strings
-space		DC.B	' ',0
+space1		DC.B	' ',0
+space2		DC.B	'  ',0
+space3		DC.B	'   ',0
+space4		DC.B	'    ',0
+space5		DC.B	'     ',0
+space6		DC.B	'      ',0
+space7		DC.B	'       ',0
 dot			DC.B	'.',0
 
+* Buffer (temp)
+buffer      DS.B    10      * 10 bytes for opcode + spaces
+
         END     $400 
+
+
 
 *~Font name~Courier New~
 *~Font size~10~
