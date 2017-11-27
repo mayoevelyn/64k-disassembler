@@ -104,19 +104,63 @@ code0000
 * code 0001
 * MOVE.B
 ******************
-code0001        STOP        #$2700
+code0001
+	LEA		str_move,A1
+    BSR		print			* load str ADDI to buffer
+    BSR		size_b			* load .B to buffer
+    LEA		space4,A1
+    BSR		print			* load 4 spaces to buffer
+    JSR		next_word
 
 ******************
 * code 0010
 * MOVE.L, MOVEA.L
 ******************
-code0010        STOP        #$2700
-
+code0010
+	MOVE.W  #currWord,D0    * move opcode word to D0
+    ANDI.W  #mask0806,D0    * mask bits 8-6
+    LSR.W   #6,D0           * shift D0 6 bits right
+    CMPI.B	#1,D0			* if 1, is MOVEA.L
+    BNE.S	op_move_l		* if not, is MOVE.L
+op_movea_l
+	LEA		str_movea,A1
+    BSR		print			* load str ADDI to buffer
+    BSR		size_l			* load .L to buffer
+    LEA		space3,A1
+    BSR		print			* load 3 spaces to buffer
+    JSR		next_word
+op_move_l
+	LEA		str_move,A1
+    BSR		print			* load str ADDI to buffer
+    BSR		size_l			* load .L to buffer
+    LEA		space4,A1
+    BSR		print			* load 4 spaces to buffer
+    JSR		next_word
+    
 ******************
 * code 0011
 * MOVE.W, MOVEA.W
 ******************
-code0011        STOP        #$2700
+code0011
+	MOVE.W  #currWord,D0    * move opcode word to D0
+    ANDI.W  #mask0806,D0    * mask bits 8-6
+    LSR.W   #6,D0           * shift D0 6 bits right
+    CMPI.B	#1,D0			* if 1, is MOVEA.W
+    BNE.S	op_move_w		* if not, is MOVE.W
+op_movea_w
+	LEA		str_movea,A1
+    BSR		print			* load str ADDI to buffer
+    BSR		size_W			* load .W to buffer
+    LEA		space3,A1
+    BSR		print			* load 3 spaces to buffer
+    JSR		next_word
+op_move_w
+	LEA		str_move,A1
+    BSR		print			* load str ADDI to buffer
+    BSR		size_W			* load .W to buffer
+    LEA		space4,A1
+    BSR		print			* load 4 spaces to buffer
+    JSR		next_word
 
 ******************
 * code 0100
@@ -157,7 +201,7 @@ op_clr_b
 	BNE		bad_op			* quit if bad
 	LEA		str_clr,A1
 	JSR		print			* print CLR
-	BRA     size_b          * print .B
+	BSR     size_b          * print .B
 	JSR		next_word
 
 ******************
