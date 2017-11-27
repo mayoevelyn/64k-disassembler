@@ -1,0 +1,161 @@
+*-----------------------------------------------------------
+* Title      :
+* Written by :
+* Date       :
+* Description:
+*-----------------------------------------------------------
+    ORG    $1000
+currWord EQU %0010001000000010    
+maskDR   EQU %0000111000000000
+maskDM   EQU %0000000111000000
+maskSM   EQU %0000000000111000
+maskSR   EQU %0000000000000111
+shift6   EQU 6
+shift3   EQU 3
+base16   EQU 16
+dataStore   EQU $1000
+storeReg EQU    $8020
+***********************************************************************************
+* Lets try and format it!!
+* D3 == Source Mode
+* D4 == Source Register
+* D5 == Destination Mode
+* D6 == Destination Register
+***********************************************************************************
+* temp print SR
+print
+print_loop
+    MOVE.B  (A1)+,(A2)+     * move a byte, and progress both pointers
+
+print_main
+	CMPI.B  #00,(A1)        * check if we hit 00
+	BNE     print_loop      * if not, push next byte to buffer
+    RTS  
+START:                  ; first instruction of program
+
+    MOVE.W        #currWord,D2
+    
+    *Mask source mode
+    MOVE.L        D2,D3
+    ANDI.L        #maskSM,D3
+    LSR.W         #shift3,D3
+    *Mask source Register
+    MOVE.L        D2,D4
+    ANDI.L        #maskSR,D4
+    
+    *Use mode JMP Table
+    LEA           mode_jmp,A0
+    MULS          #6, D3
+    MOVE.B        D4, currReg
+    JSR           0(A0,D3)
+    
+    *Mask Dest. mode
+    MOVE.L        D2,D5
+    ANDI.L        #maskDM,D5
+    LSR.W         #shift6,D5
+    
+    *Mask Dest. Register
+    MOVE.L        D2,D6
+    ANDI.L        #maskDR,D6
+    LSR.W         #shift6,D6
+    LSR.W         #shift3,D6
+    
+    *Use mode JMP Table
+    LEA           mode_jmp,A0
+    MULS          #6, D5
+    MOVE.B        D6, currReg
+    JSR           0(A0,D5)
+    
+    
+    
+    SIMHALT             ; halt simulator
+mode_jmp   JMP   code0  *Dn - Data Register Direct
+           JMP   code1  *An - Adress Register Direct
+           JMP   code2  *(An) - Address Register Indirect
+           JMP   code3  *(An)+ - Address Register Indirect with post increment 
+           JMP   code4  *-(An) - Address Register Indirect with Pre Decrement
+           JMP   code5  *Invalid
+           JMP   code6  *Invalid
+           JMP   code7  *(xxx).L || (xxx).W Absolute Adress || Immediate
+           
+*Dn - Data Register Direct
+code0   LEA     DReg,A1
+        JSR     print
+        LEA     currReg,A1
+        JSR     print   
+        RTS
+        
+*An - Adress Register Direct
+code1   LEA     AReg,A1
+        JSR     print
+        LEA     currReg,A1
+        JSR     print
+        RTS
+*(An) - Address Register Indirect
+code2   LEA     leftP,A1 
+        JSR     print
+        LEA     AReg,A1
+        JSR     print
+        LEA     currReg,A1
+        JSR     print
+        LEA     rightP,A1 
+        JSR     print  
+        RTS
+*(An)+ - Address Register Indirect with post increment
+code3   LEA     leftP,A1 
+        JSR     print
+        LEA     AReg,A1
+        JSR     print
+        LEA     currReg,A1
+        JSR     print
+        LEA     rightP,A1 
+        JSR     print 
+        LEA     plus,A1
+        JSR     print
+        RTS
+*-(An) - Address Register Indirect with Pre Decrement 
+code4   LEA     minus,A1
+        JSR     print
+        LEA     leftP,A1 
+        JSR     print
+        LEA     AReg,A1
+        JSR     print
+        LEA     currReg,A1
+        JSR     print
+        LEA     rightP,A1 
+        JSR     print  
+        RTS
+code5   RTS
+code6   RTS
+*(xxx).L || (xxx).W Absolute Adress
+code7   LEA      reg_jmp,A3
+        MOVE.B   currReg,D0
+        MULS      #6, D0
+        JSR           0(A3,D0)
+
+reg_jmp   JMP   reg0 *Absolute word Address
+          JMP   reg1 *Absolute long Address
+          JMP   reg2 *Invalid
+          JMP   reg3 *Invalid
+          JMP   reg4 *Immediate Data
+          
+reg0   RTS
+reg1   RTS
+reg2   RTS
+reg3   RTS
+reg4   RTS
+*Vars
+plus        DC.B        '+',0
+minus       DC.B        '-',0
+DReg        DC.B        'D',0
+leftP       DC.B        '(',0
+rightP      DC.B        ')',0
+AReg        DC.B        'A',0
+comma       DC.B        ', ',0
+currReg     DC.B        0
+    END    START        ; last line of source
+
+
+
+
+
