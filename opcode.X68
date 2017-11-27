@@ -15,6 +15,7 @@ stack           EQU     $A000
 currWord        EQU     %0000011000111111
 mask1512        EQU     %1111000000000000
 mask0806        EQU     %0000000111000000
+mask08          EQU     %0000000100000000
 mask1109        EQU     %0000111000000000
 mask1108        EQU     %0000111100000000
 mask0200        EQU     %0000000000000111
@@ -162,16 +163,15 @@ op_move_w
     BSR		print			* load 4 spaces to buffer
     JSR		next_word
 
-******************
+************************************************************************
 * code 0100
 * NOP, MOVEM, LEA, CLR, JSR, RTS
-******************
+************************************************************************
 code0100
     MOVE.W  #currWord,D0    * move opcode word to D0
     ANDI.W  #mask0806,D0    * mask bits 8-6
     LSR.W   #6,D0           * shift D0 6 bits right
     
-    * prep D4 for size
     MOVE.W  #currWord,D1    * move opcode word to D1
     ANDI.W  #mask1109,D1    * mask bits 11-9 
     LSR.W   #7,D1
@@ -179,11 +179,11 @@ code0100
     
 ******************
 * Bits 08-06
-* 000    * CLR.B
-* 001    * NOP, CLR.W, RTS
-* 010    * MOVEM.W, JSR, CLR.L
-* 011    * MOVEM.L
-* 111    * LEA
+* 000 - CLR.B
+* 001 - NOP, CLR.W, RTS
+* 010 - MOVEM.W, JSR, CLR.L
+* 011 - MOVEM.L
+* 111 - LEA
 ******************
     CMPI.B	#0,D0
     BEQ 	op_clr_b
@@ -192,10 +192,14 @@ code0100
     CMPI.B	#2,D0
     BEQ 	op_0100_010
     CMPI.B	#3,D0
-    BEQ 	op_movem
+    BEQ 	op_movem_l
     CMPI.B	#7,D0
     BEQ 	op_lea
     
+******************
+* Bits 08-06
+* 000 - CLR.B
+******************
 op_clr_b
 	CMPI.B	#1,D1			* check rest of bits
 	BNE		bad_op			* quit if bad
@@ -204,6 +208,10 @@ op_clr_b
 	BSR     size_b          * print .B
 	JSR		next_word
 
+******************
+* Bits 08-06
+* 001 - NOP, CLR.W, RTS
+******************
 ******************
 * Bits 11-9
 * 001 - CLR.W
@@ -257,20 +265,74 @@ op_rts
 	JSR		print			* print 7 spaces
 	JSR		next_word
 
+******************
+* Bits 08-06
+* 010 - MOVEM.W, JSR, CLR.L
+******************
 op_0100_010
-op_movem
+	CMPI.B  #7,D1           * check rest of bits
+    BEQ     op_jsr          * is JSR
+    CMPI.B  #1,D1           * check rest of bits
+    BEQ     op_clr_l        * is CLR.L
+    * only MOVEM.W case left
+op_movem_w
+	* check rest of bits
+	* only care about bits 11 and 9
+	* bit 10 is dr, handled by EA
+	ANDI.B	#5,D1			* strips bit 1 of D1
+	CMPI.B  #4,D1           * check bits 11 and 9
+    BNE     bad_op          * if bad
+	* passed the test, let it print!
+	LEA		str_movem,A1
+	JSR		print			* load MOVEM to buffer
+	JSR		size_w			* load .W to buffer
+	LEA		space3,A1
+	JSR		print			* print 3 spaces
+	JSR		next_word
 op_jsr
+	LEA		str_jsr,A1
+	JSR		print			* load JSR to buffer
+	LEA		space7,A1
+	JSR		print			* print 7 spaces
+	JSR		next_word
+op_clr_l
+	LEA		str_clr,A1
+	JSR		print			* load CLR to buffer
+	JSR		size_l			* load .L to buffer
+	LEA		space5,A1
+	JSR		print			* print 5 spaces
+	JSR		next_word
 
-
-
+******************
+* Bits 08-06
+* 011 - MOVEM.L
+******************
 op_movem_l
+	* check rest of bits
+	* only care about bits 11 and 9
+	* bit 10 is dr, handled by EA
+	ANDI.B	#5,D1			* strips bit 1 of D1
+	CMPI.B  #4,D1           * check bits 11 and 9
+    BNE     bad_op          * if bad
+	* passed the test, let it print!
+	LEA		str_movem,A1
+	JSR		print			* load MOVEM to buffer
+	JSR		size_L			* load .L to buffer
+	LEA		space3,A1
+	JSR		print			* print 3 spaces
+	JSR		next_word
+
+******************
+* Bits 08-06
+* 111 - LEA
+******************
 op_lea
-    
-code5000
-code5001    
-code5010    
-code5011    
-code5111    
+    LEA		str_lea,A1
+	JSR		print			* load LEA to buffer
+	LEA		space7,A1
+	JSR		print			* print 7 spaces
+	JSR		next_word
+************************************************************************
 
 ******************
 * code 0101
@@ -278,18 +340,24 @@ code5111
 ******************
 code0101
     MOVE.W  #currWord,D0    * move opcode word to D0
-    ANDI.W  #mask0806,D0    * mask bits 8-6
-    LSR.W   #6,D0           * shift D0 6 bits right
-
-
-******************
-* Bits 08-06
-* 000    * CLR.B
-* 001    * NOP, CLR.W, RTS
-* 010    * MOVEM.W, JSR, CLR.L
-* 011    * MOVEM.L
-* 111    * LEA
-******************
+    ANDI.W  #mask08,D0		* mask bit 8
+    LSR.W   #7,D0
+    LSR.W   #1,D0           * shift D0 8 bits right
+    
+    CMPI.B	#0,D0			* bit 8 should be 0
+    BNE		bad_op			* BAD! BAD OP! HISS
+    
+    LEA		str_addq,A1
+	JSR		print			* load ADDQ to buffer
+	
+    MOVE.W  #currWord,D4    * move opcode word to D4
+    ANDI.W  #mask0706,D4    * mask bits 7-6
+    LSR.W   #6,D4           * shift D4 6 bits right
+    
+    BSR		size2			* handle size
+    LEA		space4,A1
+    BSR		print			* load 4 spaces to buffer
+    JSR		next_word
 
 ******************
 * code 0110
