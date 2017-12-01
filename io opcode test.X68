@@ -34,15 +34,10 @@ mask0700		EQU		$FF
 start
     BSR.S   welcome                 * welcome, ask for start/end
     JSR     clear_all_reg
-    JSR     read
-    
-    
+    JSR     read  
     MOVE.B  #9,D0
     TRAP    #15                     * haltsim
-
- 
-
-
+    
 *-----------------------------------------------------------
 * INPUT
 *-----------------------------------------------------------
@@ -129,31 +124,35 @@ check_input_range
     CMP.L   #max_addr,D6            * check if input above max
     BGT     invalid_addr
     RTS
-    
+
+*****************
+* Subroutine: ascii_to_hex
+* Converts an ascii number in D2 to hex
+*****************
 ascii_to_hex
     CMPI.B  #$30,D2
     BLT     invalid_addr            * if input lower than number, invalid
     CMPI.B  #$3A,D2
-    BLT     convert_no              * if input is number, then subtract 30 to convert
+    BLT     no_to_hex               * if input is number, then subtract 30 to convert
     CMPI.B  #$41,D2                 
     BLT     invalid_addr            * if input between numbers and letters, invalid
     CMPI.B  #$47,D2
-    BLT     convert_uc_char         * if input is UC letter, then subtract 37 to convert
+    BLT     uc_char_to_hex          * if input is UC letter, then subtract 37 to convert
     CMPI.B  #$61,D2
     BLT     invalid_addr            * if input between UC and LC letters, invalid
     CMPI.B  #$67,D2
-    BLT     convert_lc_char         * if input is LC letter, then subtract 57 to convert
+    BLT     uc_char_to_hex          * if input is LC letter, then subtract 57 to convert
     BRA     invalid_addr      
 
-convert_no
+no_to_hex
     SUB.B   #$30,D2
     BRA     finish_ascii_to_hex
     
-convert_uc_char
+uc_char_to_hex
     SUB.B   #$37,D2
     BRA     finish_ascii_to_hex
  
-convert_lc_char
+lc_char_to_hex
     SUB.B   #$57,D2
     BRA     finish_ascii_to_hex
          
@@ -165,8 +164,15 @@ invalid_addr
     
 finish_ascii_to_hex
     RTS 
-
-   
+    
+    
+    
+    
+    
+*-----------------------------------------------------------
+* READING AND DECODING
+*-----------------------------------------------------------
+ 
 *****************
 * D0 = opcode parts
 * D1 = opcode parts
@@ -175,23 +181,20 @@ finish_ascii_to_hex
 *****************
 read
     MOVEA.L memPtrGood,A1
-    MOVEA.L #start_addr,A3
-    MOVE.L  (A3),D3
-    MOVE.L  D3,0(A1)              * set currAddr to start_addr
-    JSR     clear_all_reg
-
-read_loop
-
+    MOVE.L  start_addr,D3
+    MOVE.L  D3,memPtrGood   * set memPtrGood to start_addr
+    MOVE.L  D3,memPtr       * also set memPtr to start_addr
+    ADDI.B  #30,linecounter
     
-read_loop
+next_word
     JSR     clear_all_reg
-    * loading buffers, sp, 
+    * loading buffers, sp, jmp_table
 	LEA     buffer,A2       * load buffer address/init buffer ptr
     BSR		print_addr		* print address
 	LEA     stack,SP        * Load the SP
 	LEA     jmp_table,A0    * Index into the table
 	
-	BSR.S   next_word       * read next word
+	BSR.S   read_next_word       * read next word
 	CLR.L   D0              
     MOVE.W  currWord,D0     * put currWord in D0
     LSR.W   #7,D0
@@ -203,12 +206,35 @@ read_loop
     * after opcode section, determine if valid or not
     JSR     chk_flag        * will go to print_data if bad
     BRA     print_buffer    * else print good
+    SUBI.B  #1,linecounter
+    BNE     instruction_finish_return
+        
+instruction_next_page       * resets line counter when equals 1
+    ADDI.B  #30,linecounter
+    LEA     returnMsg,A1
+    MOVE.B  #14,D0
+    TRAP    #15             * ask user to hit enter to next page
+    LEA     user_input,A1
+    MOVE.B  #2,D0
+    TRAP    #15
+
+instruction_finish_return
+    RTS
+    BRA     next_word  
     
     * if not reached endAddr, go again
     MOVE.L  end_addr,D1
     MOVE.L  memPtrGood,D2
     CMP.L   D1,D2
     BGE     finish_read              * finish reading when currAddr >= end_addr
+
+*****************
+* Subroutine: Reads next word
+*****************   
+read_next_word
+    MOVE.W  memPtr,currWord         * update currWord
+    ADDI.L  #$00000004,memPtr       * increment memPtr by one word
+    RTS
      
 finish_read
     RTS       
@@ -898,10 +924,6 @@ print_addr_main
 	LEA		space2,A1
 	BSR.S	print			* print 2 spaces
     RTS
-        
-* temp next word SR
-next_word
-		STOP	#$2700
 		
 ***********************************************************
 * Output Subroutines
@@ -991,59 +1013,50 @@ output_memory_finish
     MOVEA.L #0,A1               * clear everything
     RTS
     
-add_data_to_buffer
-    LEA     word,A4
-    MOVE.B  #2,D3                   * will convert 2 bytes
-data_to_buffer_loop
-    CLR.L   D5
-    CLR.L   D6
-    MOVE.B  (A4)+,D5
+*add_data_to_buffer
+*    LEA     word,A4
+*    MOVE.B  #2,D3                   * will convert 2 bytes
+*data_to_buffer_loop
+*    CLR.L   D5
+*    CLR.L   D6
+*    MOVE.B  (A4)+,D5
+*    
+*    SUBI.B  #1,D3
+*    BNE     data_to_buffer_loop     * all bytes of word converted, added
+*    
+*    
+*convert_1_byte
+*    ADD.B   D5,D6
+*    LSR.B   #4,D6                   * remove right bits
+*    BSR.S   ascii_to_hex            * convert first byte
+*    LSL.W   #8,D6
+*    ADD.B   D5,D6
+*    ANDI.B  #%00001111,D6            * mask out left bits
+*    BSR.S   hex_to_ascii            * convert second byte
+*    MOVE.W  D6,(A2)+                * put converted byte into buffer
+*    RTS
+*    
+*finish_convert_data
+*    CLR.L   D3
+*    CLR.L   D5
+*    CLR.L   D6
+*    JSR    
     
-    SUBI.B  #1,D3
-    BNE     data_to_buffer_loop     * all bytes of word converted, added
-    
-    
-convert_1_byte
-    ADD.B   D5,D6
-    LSR.B   #4,D6                   * remove right bits
-    BSR.R   aii_to_hex            * convert first byte
-    LSL.W   #8,D6
-    ADD.B   #D5,D6
-    ANDI.B  #%00001111              * mask out left bits
-    BSR.S   ascii_to_hex            * convert second byte
-    MOVE.W  D6,(A2)+                * put converted byte into buffer
-    RTS
-    
-finish_convert_data
-    CLR.L   D3
-    CLR.L   D5
-    CLR.L   D6
-    JSR    
-    
-ascii_to_hex
+hex_to_ascii
     CMPI.B  #9,D7
-    BLE     no_to_hex
-    BRA     char_to_hex
+    BLE     no_to_ascii
+    BRA     char_to_ascii
     
-no_to_hex
-    ADD.B
+no_to_ascii
+    ADD.B   #$30,D7
     RTS
    
-char_to_hex
-    ADD.B
+char_to_ascii
+    ADD.B   #$37,D7
     RTS
 
-instruction_finish
-    SUBI.B  #1,counter
-    BEQ     instruction_next_page       * if line count reaches 30, next page
-    * compare with 30
-    * if returns is 30, force user to press enter, set returns to 0
-    * if returns is 
-    
-instruction_next_page
-    MOVE.B  #30,D3
 
- 
+
 
 ***********************************************************
 * Clearing subroutines
@@ -1216,6 +1229,7 @@ memPtrGood  DS.L    1       * address to print
 outputWord  DS.L    1       * word to output from buffer
 start_addr  DS.L    1       * starting address
 end_addr    DS.L    1       * ending address
+linecounter DS.B    1       * counts lines
 
 * I/O strings
 welcomeMSG  DC.B    'Welcome to the Motorola 68000 disassembler!',CR,LF,0
@@ -1224,6 +1238,7 @@ endMSG      DC.B    'Please enter in an end location up to $00FFFFFF: ',CR,LF,0
 addrErrMSG  DC.B    'That is not a valid address. Please enter a valid address',CR,LF,0
 returnMSG   DC.B    '',CR,LF,0
         	END     $400 
+
 
 
 
