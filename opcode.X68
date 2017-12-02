@@ -4,12 +4,8 @@
 * Date       : 11/16/2017
 * Description: 
 *-----------------------------------------------------------
-*****************************************
-* Example of using a jump table to decode an instruction
-*
-****************************************
 
-* System equates
+* Opcode equate
 
 stack           EQU     $A000
 currWord        EQU     %0101111010111111
@@ -592,13 +588,56 @@ reg_ver
 	ANDI.W  #mask0403,D0	* mask bits 4-3
     LSR.W   #3,D0			* shift D0 3 bits right
     
-    CMPI.B	#0,D0			* ASd case
-op_a
-op_lsr
-op_asl
-op_asr
-op_rol
+    CMPI.B	#0,D0
+    BRA		op_asd			* ASd case
+    CMPI.B	#1,D0
+    BRA		op_lsd			* LSd case
+    
+	* ROd case left
+	CMPI.B	#3,D0			* ensure correct op
+	BNE		bad_op			* bad case
+	MOVE.W  #currWord,D0    * move opcode word to D0
+	ANDI.W  #mask08,D0		* mask bit 8
+	CMPI.B	#0,D0			* right dir
+	BNE.S	op_rol
 op_ror
+	LEA		str_ror,A1
+	BSR		print			* print ROR
+	BSR		size_space
+op_rol
+	LEA		str_rol,A1
+	BSR		print			* print ROL
+	BSR		size_space
+op_asd
+	MOVE.W  #currWord,D0    * move opcode word to D0
+	ANDI.W  #mask08,D0		* mask bit 8
+	CMPI.B	#0,D0			* right dir
+	BNE.S	op_asl
+op_asr
+	LEA		str_asr,A1
+	BSR		print			* print ASR
+	BSR		size_space
+op_asl
+	LEA		str_asl,A1
+	BSR		print			* print ASL
+	BSR		size_space
+op_lsd
+	MOVE.W  #currWord,D0    * move opcode word to D0
+	ANDI.W  #mask08,D0		* mask bit 8
+	CMPI.B	#0,D0			* right dir
+	BNE.S	op_lsl
+op_lsr
+	LEA		str_lsr,A1
+	BSR		print			* print LSR
+	BSR		size_space
+op_lsl
+	LEA		str_lsl,A1
+	BSR		print			* print LSL
+	BSR		size_space
+size_space
+	BSR		size2			* handle size
+	LEA		space5,A1
+	BSR		print			* print 5 spaces
 
 ******************
 * bits 11-8
@@ -621,19 +660,19 @@ bra_table
 op_asr_m
 	LEA		str_asr,A1
 	BSR		print			* load ASR to buffer
-	BRA		next_word
+	BRA		print7spaces
 op_asl_m
 	LEA		str_asl,A1
 	BSR		print			* load ASL to buffer
-	BRA		next_word
+	BRA		print7spaces
 op_lsr_m
 	LEA		str_lsr,A1
 	BSR		print			* load LSR to buffer
-	BRA		next_word
+	BRA		print7spaces
 op_lsl_m
 	LEA		str_lsl,A1
 	BSR		print			* load LSL to buffer
-	BRA		next_word
+	BRA		print7spaces
 op_roxr_m
 	NOP						* ROXR not supported
 	NOP						* 7 op words filler
@@ -651,11 +690,15 @@ op_roxl_m
 op_ror_m
 	LEA		str_ror,A1
 	BSR		print			* load ROR to buffer
-	BRA		next_word
+	BRA		print7spaces
 op_rol_m
 	LEA		str_rol,A1
 	BSR		print			* load ROL to buffer
-	BRA		next_word
+	BRA		print7spaces
+print7spaces
+	LEA		space7,A1
+	BSR		print			* prints 7 spaces
+	BSR		next_word
 
 ******************
 * code 1111
@@ -683,15 +726,17 @@ fail
 ******************
 * Subroutine: bad_op
 * If the opcode is not supported or garbage bits
+* Update flag, then call IO's print line
 ******************
 bad_op
-    STOP        #$2700
+	MOVE.B	#2,D4			* set flag for bad opcode
+    BSR		next_word
 
 ******************
 * Subroutine: print_data TEMPORARY
 ******************
 print_data
-    STOP        #$2700
+    STOP	#$2700
     
 * temp print SR
 print
@@ -853,6 +898,7 @@ count		DS.B	1		* counter
 currAddr	DS.L	1		* address of current word
 
         	END     $400 
+
 
 
 
