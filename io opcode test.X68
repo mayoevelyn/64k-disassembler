@@ -886,13 +886,11 @@ bad_op
 * outputs <memloc>  DATA      <data>
 ******************
 print_data
-    MOVE.L  memPtrGood,D1
-    ADDI.L  #4,D1           * increment memPtrGood, put 
-    MOVE.L  D1,memPtrGood
+    ADDI.L  #4,memPtrGood           * increment memPtrGood, put 
     MOVE.L  memPtrGood,memPtr
     JSR     output_memory   * display memory location
     LEA     str_data,A1
-    MOVE.B  #13,D0
+    MOVE.B  #14,D0
     TRAP    #15             * display 'DATA'
     LEA     space6,A1       
     TRAP    #15             * add 2 spaces
@@ -1005,7 +1003,7 @@ output_memory_finish
     MOVE.B  #15,D0
     TRAP    #15                 * output memory 
     LEA     space2,A1
-    MOVE.B  #13,D0
+    MOVE.B  #14,D0
     TRAP    #15                 * 2 spaces after memory
     CLR.L   D0
     CLR.L   D1
@@ -1040,7 +1038,32 @@ output_memory_finish
 *    CLR.L   D3
 *    CLR.L   D5
 *    CLR.L   D6
-*    JSR    
+*    JSR
+
+******************
+* conversion subroutines
+* Converts D6 to ascii, and stores it in D7
+*   D6: up to word length, number to convert
+*   D7: converted number
+* Please make sure that D7 is clear beforehand
+******************
+hex_to_ascii_w
+    BSR.S   hex_to_ascii_b  * convert first byte
+    LSR.W   #8,D6
+    SWAP    D7              * make space for next byte
+    BSR.S   hex_to_ascii_b  * convert second byte
+    SWAP    D7              * put them in correcft order
+    RTS   
+    
+hex_to_ascii_b
+    MOVE.B  D6,D7
+    LSR.B   #4,D7           * isolate first digit
+    BSR.S   hex_to_ascii    * convert to ascii
+    LSL.W   #8,D7           * put it on the left side
+    MOVE.B  D6,D7
+    AND.B  #%00001111,D7   * mask first bit out
+    BSR.S   hex_to_ascii    * convert to ascii
+    RTS    
     
 hex_to_ascii
     CMPI.B  #9,D7
@@ -1054,9 +1077,6 @@ no_to_ascii
 char_to_ascii
     ADD.B   #$37,D7
     RTS
-
-
-
 
 ***********************************************************
 * Clearing subroutines
@@ -1238,6 +1258,7 @@ endMSG      DC.B    'Please enter in an end location up to $00FFFFFF: ',CR,LF,0
 addrErrMSG  DC.B    'That is not a valid address. Please enter a valid address',CR,LF,0
 returnMSG   DC.B    '',CR,LF,0
         	END     $400 
+
 
 
 
