@@ -858,11 +858,11 @@ reg_ver
 op_ror
 	LEA		str_ror,A1
 	BSR		print			* print ROR
-	BRA		1110_end
+	BRA		sr_end
 op_rol
 	LEA		str_rol,A1
 	BSR		print			* print ROL
-	BRA		1110_end
+	BRA		sr_end
 op_asd
 	MOVE.W  currWord,D0     * move opcode word to D0
 	ANDI.W  #mask08,D0		* mask bit 8
@@ -871,11 +871,11 @@ op_asd
 op_asr
 	LEA		str_asr,A1
 	BSR		print			* print ASR
-	BRA		1110_end
+	BRA		sr_end
 op_asl
 	LEA		str_asl,A1
 	BSR		print			* print ASL
-	BRA		1110_end
+	BRA		sr_end
 op_lsd
 	MOVE.W  currWord,D0     * move opcode word to D0
 	ANDI.W  #mask08,D0		* mask bit 8
@@ -884,12 +884,12 @@ op_lsd
 op_lsr
 	LEA		str_lsr,A1
 	BSR		print			* print LSR
-	BRA		1110_end
+	BRA		sr_end
 op_lsl
 	LEA		str_lsl,A1
 	BSR		print			* print LSL
-	BRA		1110_end
-1110_end
+	BRA		sr_end
+sr_end
 	BSR		size2			* handle size
 	LEA		space5,A1
 	BSR		print			* print 5 spaces
@@ -897,20 +897,20 @@ op_lsl
 	ANDI.W  #mask05,D0		* mask bit 5 (i/r field)
 	LSR.W   #5,D0			* shift D0 5 bits right
 	TST.B	D0
-	BEQ		1110_imd		* imediate src if i/r field 0
+	BEQ		sr_imd		* imediate src if i/r field 0
 * else, register src
-1110_reg
+sr_reg
 	MOVE.B	str_d,(A2)+		* load D to buffer
 	BSR		print_reg		* load reg no to buffer
 	MOVE.B	comma,(A2)+		* load comma to buffer
-	BRA		1110_dest
-1110_imd
+	BRA		sr_dest
+sr_imd
 	MOVE.B	pound,(A2)+		* load # to buffer
 	BSR		print_reg		* load reg no to buffer
 	MOVE.B	comma,(A2)+		* load comma to buffer
-	BRA		1110_dest
+	BRA		sr_dest
 * print destination data reg
-1110_dest
+sr_dest
 	MOVE.B	str_d,(A2)+		* load D to buffer
 	MOVE.W  currWord,D6     * move opcode word to D6
 	LSL.W	#8,D6
@@ -1076,17 +1076,11 @@ ea_or_dest
 	RTS
 ea_or_src
 	RTS
-ea_lsl   RTS
+ea_lsd   RTS
 
-ea_lsr   RTS
+ea_asd   RTS
 
-ea_asr   RTS
-
-ea_asl   RTS
-
-ea_rol   RTS
-
-ea_ror   RTS
+ea_rod   RTS
 
 ea_cmp   RTS
 
