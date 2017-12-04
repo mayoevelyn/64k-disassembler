@@ -5,13 +5,16 @@
 * Description: 
 *-----------------------------------------------------------
 
-* Opcode equate
+* Opcode equates
 
 stack           EQU     $A000
-currWord        EQU     %0101111010111111
+*ex				EQU		%0101101000111111
+ex				EQU		%0111101011111111
 mask1512        EQU     %1111000000000000
 mask0806        EQU     %0000000111000000
+mask05          EQU     %0000000000100000
 mask08          EQU     %0000000100000000
+mask10          EQU     %0000010000000000
 mask1109        EQU     %0000111000000000
 mask1108        EQU     %0000111100000000
 mask0200        EQU     %0000000000000111
@@ -20,8 +23,8 @@ mask0403        EQU     %0000000000011000
 mask0706        EQU     %0000000011000000
 mask0700		EQU		$FF
                
-*****************
-* Program starts here
+*****************************************************************************************************************************************************
+* Opcode part starts here
 * D0 = opcode parts
 * D1 = opcode parts
 * A1 = message
@@ -30,16 +33,20 @@ mask0700		EQU		$FF
     ORG     $400
 start
 opcode
+	MOVE.W	#ex,currWord	* load test
+
 	LEA     buffer,A2       * load buffer address/init buffer ptr
-    BSR		print_addr		* print address
+	LEA		memPtr,A3		* load moving ptr to A3
+	ADDQ.L	#4,A3			* move memPtr forward 1 word
 	LEA     stack,SP        * Load the SP
 	LEA     jmp_table,A0    * Index into the table
 	CLR.L   D0              * Zero it
-    MOVE.W  #currWord,D0    * We'll play with it here
+    MOVE.W  currWord,D0		* We'll play with it here
     LSR.W   #7,D0
     LSR.W   #5,D0           * shift 12 bits to the right
     MULU    #6,D0           * Form offset     
     JSR     0(A0,D0)        * Jump indirect with index
+    STOP	#$2700			* stop for now
         
 jmp_table      
 	JMP		code0000		* ADDI
@@ -68,17 +75,18 @@ jmp_table
 * ADDI
 ******************
 code0000
-	MOVE.W  #currWord,D0    * move opcode word to D0
+	MOVE.W  currWord,D0		* move opcode word to D0
+    MOVE.W	D0,D1			* move opcode word to D1
+	
     ANDI.W  #mask1108,D0    * mask bits 11-8
     LSR.W   #8,D0			* shift D0 8 bits right
     
-    MOVE.W  #currWord,D1    * move opcode word to D1
     ANDI.W  #mask0706,D1    * mask bits 7-6
     LSR.W   #6,D1           * shift D1 6 bits right
     
     CMPI.B	#3,D1			* check that size field is valid
     BEQ		bad_op			* if equal, bad opcode
-    
+op_addi
     CMPI.B	#6,D0			* check rest of bits
     BNE		bad_op			* if not equal, bad opcode
     LEA		str_addi,A1
@@ -86,7 +94,36 @@ code0000
     BSR		size2			* handle size
     LEA		space4,A1
     BSR		print			* load 4 spaces to buffer
-    BRA		next_word
+    
+    * loads source to buffer
+    MOVE.B  pound,(A2)+		* load a # to buffer
+    MOVE.B	dol,(A2)+		* load a $ to buffer
+    CMPI.B	#0,D1			* byte 
+    BRA		addi_byte
+    CMPI.B	#1,D1			* word
+    BRA		addi_word
+    CMPI.B	#2,D1			* long
+    BRA		addi_long
+    
+addi_byte
+	ADDQ.L	#2,A3			* move memPtr forward 1 byte
+	MOVE.B	(A3)+,D6
+	BSR		h2a_b			* load to buffer
+	MOVE.B  comma,(A2)+		* load a comma to buffer
+	BSR		ea_addi			* load EA to buffer
+	RTS
+addi_word
+	MOVE.W	(A3)+,D6
+	BSR		h2a_w			* load to buffer
+	MOVE.B  comma,(A2)+		* load a comma to buffer
+	BSR		ea_addi			* load EA to buffer
+	RTS
+addi_long
+    MOVE.L	(A3)+,D6
+	BSR		h2a_l			* load to buffer
+	MOVE.B  comma,(A2)+		* load a comma to buffer
+	BSR		ea_addi			* load EA to buffer
+    RTS
 
 ******************
 * code 0001
@@ -98,71 +135,99 @@ code0001
     BSR		size_b			* load .B to buffer
     LEA		space4,A1
     BSR		print			* load 4 spaces to buffer
-    BRA		next_word
+    
+    BSR		ea_move_src		* load EA to buffer
+    MOVE.B  comma,(A2)+		* load a comma to buffer
+    BSR		ea_move_dest	* load EA to buffer
+    
+    RTS
 
 ******************
 * code 0010
 * MOVE.L, MOVEA.L
 ******************
 code0010
-	MOVE.W  #currWord,D0    * move opcode word to D0
+	MOVE.W  currWord,D0		* move opcode word to D0
+    MOVE.W	D0,D6			* move opcode word to D6
+    
     ANDI.W  #mask0806,D0    * mask bits 8-6
     LSR.W   #6,D0           * shift D0 6 bits right
     CMPI.B	#1,D0			* if 1, is MOVEA.L
     BNE.S	op_move_l		* if not, is MOVE.L
 op_movea_l
 	LEA		str_movea,A1
-    BSR		print			* load str ADDI to buffer
+    BSR		print			* load str MOVEA to buffer
     BSR		size_l			* load .L to buffer
     LEA		space3,A1
     BSR		print			* load 3 spaces to buffer
-    BRA		next_word
+    
+    BSR		ea_movea_src	* load EA to buffer
+    MOVE.B  comma,(A2)+		* load a comma to buffer
+    MOVE.B  str_a,(A2)+		* load A to buffer
+    BSR		print_reg		* print register number
+    RTS
 op_move_l
 	LEA		str_move,A1
-    BSR		print			* load str ADDI to buffer
+    BSR		print			* load str MOVE to buffer
     BSR		size_l			* load .L to buffer
     LEA		space4,A1
     BSR		print			* load 4 spaces to buffer
-    BRA		next_word
+    
+    BSR		ea_move_src		* load EA to buffer
+    MOVE.B  comma,(A2)+		* load a comma to buffer
+    BSR		ea_move_dest	* load EA to buffer
+    RTS
     
 ******************
 * code 0011
 * MOVE.W, MOVEA.W
 ******************
 code0011
-	MOVE.W  #currWord,D0    * move opcode word to D0
+	MOVE.W  currWord,D0     * move opcode word to D0
+	MOVE.W	D0,D6			* move opcode word to D6
+	
     ANDI.W  #mask0806,D0    * mask bits 8-6
     LSR.W   #6,D0           * shift D0 6 bits right
     CMPI.B	#1,D0			* if 1, is MOVEA.W
     BNE.S	op_move_w		* if not, is MOVE.W
 op_movea_w
 	LEA		str_movea,A1
-    BSR		print			* load str ADDI to buffer
-    BSR		size_W			* load .W to buffer
+    BSR		print			* load str MOVEA to buffer
+    BSR		size_w			* load .W to buffer
     LEA		space3,A1
     BSR		print			* load 3 spaces to buffer
-    BRA		next_word
+    
+    BSR		ea_movea_src	* load EA to buffer
+    MOVE.B  comma,(A2)+		* load a comma to buffer
+    MOVE.B  str_a,(A2)+		* load A to buffer
+    BSR		print_reg		* print register number
+    RTS
 op_move_w
 	LEA		str_move,A1
-    BSR		print			* load str ADDI to buffer
-    BSR		size_W			* load .W to buffer
+    BSR		print			* load str MOVE to buffer
+    BSR		size_w			* load .W to buffer
     LEA		space4,A1
     BSR		print			* load 4 spaces to buffer
-    BRA		next_word
+    
+    BSR		ea_move_src		* load EA to buffer
+    MOVE.B  comma,(A2)+		* load a comma to buffer
+    BSR		ea_move_dest	* load EA to buffer
+    RTS
     
 ************************************************************************
 * code 0100
 * NOP, MOVEM, LEA, CLR, JSR, RTS
 ************************************************************************
 code0100
-    MOVE.W  #currWord,D0    * move opcode word to D0
+    MOVE.W  currWord,D0		* move opcode word to D0
+    MOVE.W	D0,D1			* move opcode word to D1
+    
     ANDI.W  #mask0806,D0    * mask bits 8-6
     LSR.W   #6,D0           * shift D0 6 bits right
-    
-    MOVE.W  #currWord,D1    * move opcode word to D1
+
     ANDI.W  #mask1109,D1    * mask bits 11-9 
-    LSR.W   #7,D1
-    LSR.W   #2,D1           * shift D1 9 bits right
+    LSR.W   #8,D1
+    LSR.W   #1,D1           * shift D1 9 bits right
     
 ******************
 * Bits 08-06
@@ -193,7 +258,10 @@ op_clr_b
 	LEA		str_clr,A1
 	BSR		print			* print CLR
 	BSR     size_b          * print .B
-	BRA		next_word
+	LEA		space5,A1
+    BSR		print			* load 5 spaces to buffer
+    BSR		ea_clr			* print ea param
+	RTS
 
 ******************
 * Bits 08-06
@@ -217,14 +285,16 @@ op_clr_w
 	BSR     size_w          * print .W
 	LEA		space5,A1
 	BSR		print			* print 5 spaces
-	BRA		next_word
+	BSR		ea_clr			* print ea param
+	RTS
 	
 nop_or_rts
-    MOVE.W  #currWord,D0    * load currWord to D0
+    MOVE.W  currWord,D0		* move opcode word to D0
+    MOVE.W	D0,D1			* move opcode word to D1
+    
     ANDI.W  #mask0200,D0    * mask bits 2-0
 
-    MOVE.W  #currWord,D1    * load currWord to D1
-    ANDI.W  #mask0503,D1    * mask bits 5-3
+    ANDI.W  #mask0503,D1    * mask bits 5-3.
     LSR.W   #3,D1           * shift 3 bits right
 
     CMPI.B  #5,D0           * RTS
@@ -233,24 +303,18 @@ nop_or_rts
 op_nop
     CMPI.B  #1,D0           * check rest of bits
     BNE     bad_op          * if bad
-    
     CMPI.B  #6,D1           * check rest of bits
     BNE     bad_op          * if bad
 
 	LEA		str_nop,A1
 	BSR		print			* load NOP to buffer
-	LEA		space7,A1
-	BSR		print			* print 7 spaces
-	BRA		next_word
-
+	RTS
 op_rts
     CMPI.B  #6,D1           * check rest of bits
     BNE     bad_op          * if bad
 	LEA		str_rts,A1
 	BSR		print			* load RTS to buffer
-	LEA		space7,A1
-	BSR		print			* print 7 spaces
-	BRA		next_word
+	RTS
 
 ******************
 * Bits 08-06
@@ -275,20 +339,46 @@ op_movem_w
 	BSR		size_w			* load .W to buffer
 	LEA		space3,A1
 	BSR		print			* print 3 spaces
-	BRA		next_word
+	
+	* handle params
+	MOVE.W  currWord,D0		* move opcode word to D0
+	ANDI.W	#mask10,D0		* mask bit 10
+	LSR.W   #8,D0
+	LSR.W   #2,D0           * shift 10 bits right
+	
+	TST.B	D0				* regmem, else memreg
+	BEQ.S	movem_regmem
+	BRA.S	movem_memreg
+	
+* D0-D7/A0-A7
+movem_regmem
+	
+	MOVE.B  comma,(A2)+		* load a comma to buffer
+	BSR		ea_movem_regmem	* load EA to buffer
+	RTS
+	
+* A7-A0/D7-D0
+movem_memreg
+	BSR		ea_movem_memreg	* load EA to buffer
+	MOVE.B  comma,(A2)+		* load a comma to buffer
+	
+	RTS
+
 op_jsr
 	LEA		str_jsr,A1
 	BSR		print			* load JSR to buffer
 	LEA		space7,A1
 	BSR		print			* print 7 spaces
-	BRA		next_word
+	BSR		ea_jsr			* print ea param
+	RTS
 op_clr_l
 	LEA		str_clr,A1
 	BSR		print			* load CLR to buffer
 	BSR		size_l			* load .L to buffer
 	LEA		space5,A1
 	BSR		print			* print 5 spaces
-	BRA		next_word
+	BSR		ea_clr			* print ea param
+	RTS
 
 ******************
 * Bits 08-06
@@ -307,7 +397,16 @@ op_movem_l
 	BSR		size_L			* load .L to buffer
 	LEA		space3,A1
 	BSR		print			* print 3 spaces
-	BRA		next_word
+	
+	* handle params
+	MOVE.W  currWord,D0		* move opcode word to D0
+	ANDI.W	#mask10,D0		* mask bit 10
+	LSR.W   #8,D0
+	LSR.W   #2,D0           * shift 10 bits right
+	
+	TST.B	D0				* regmem, else memreg
+	BEQ		movem_regmem
+	BRA		movem_memreg
 
 ******************
 * Bits 08-06
@@ -318,7 +417,12 @@ op_lea
 	BSR		print			* load LEA to buffer
 	LEA		space7,A1
 	BSR		print			* print 7 spaces
-	BRA		next_word
+	
+	BSR		ea_lea			* load EA to buffer
+    MOVE.B  comma,(A2)+		* load a comma to buffer
+    MOVE.B  str_a,(A2)+		* load A to buffer
+    BSR		print_reg		* print register number
+    RTS
 ************************************************************************
 
 ******************
@@ -326,14 +430,14 @@ op_lea
 * ADDQ
 ******************
 code0101
-    MOVE.W  #currWord,D0    * move opcode word to D0
+    MOVE.W  currWord,D0		* move opcode word to D0
     MOVE.W  D0,D1    		* move opcode word to D1
+    MOVE.W  D0,D6    		* move opcode word to D6
 
     ANDI.W  #mask08,D0		* mask bit 8
-    
-    CMPI.W	#0,D0			* bit 8 should be 0
+    TST.W	D0				* bit 8 should be 0
     BNE		bad_op			* BAD! BAD OP! HISS
-    
+op_addq
     LEA		str_addq,A1
 	BSR		print			* load ADDQ to buffer
 	
@@ -346,15 +450,29 @@ code0101
     BSR		size2			* handle size
     LEA		space4,A1
     BSR		print			* load 4 spaces to buffer
-    BRA		next_word
+    
+    MOVE.B  pound,(A2)+		* load a # to buffer
+    
+    ANDI.W  #mask1109,D6    * mask bits 11-9 for address reg
+    LSR.W   #8,D6
+    LSR.W   #1,D6           * shift D6 9 bits right
+    TST.B	D6				* if 0
+    BEQ		print8			* print 8
+    BSR		h2a_b			* load address reg to buffer
+    BRA.S	addq_ea			* print ea part
+print8
+	MOVE.B  eight,(A2)+		* load an 8 to buffer
+addq_ea
+	BSR		ea_addq			* load EA to buffer
+	RTS
 
 ******************
 * code 0110
 * Bcc (BCC, BGT, BLE)
 ******************
 code0110
-	MOVE.W  #currWord,D0    * move opcode word to D0
-	MOVE.W  D0,D1		    * move opcode word to D1
+	MOVE.W  currWord,D0		* move opcode word to D0
+    MOVE.W	D0,D1			* move opcode word to D1
 	
     ANDI.W  #mask1108,D0	* mask bits 11-8
     LSR.W   #8,D0			* shift D0 8 bits right
@@ -373,34 +491,39 @@ op_ble
 	
 	LEA		str_ble,A1
 	BSR		print			* load BLE to buffer
-	BSR		bcc_size		* deal with size
-	LEA		space5,A1
-	BSR		print			* print 5 spaces
-	BRA		next_word
+	BSR		bcc_size		* deal with size + spaces
+	RTS
 op_bcc
 	LEA		str_bcc,A1
 	BSR		print			* load BCC to buffer
-	BSR		bcc_size		* deal with size
-	LEA		space5,A1
-	BSR		print			* print 5 spaces
-	BRA		next_word
+	BRA		bcc_size		* deal with size + spaces
 op_bgt
 	LEA		str_bgt,A1
 	BSR		print			* load BGT to buffer
-	BSR		bcc_size		* deal with size
-	LEA		space5,A1
-	BSR		print			* print 5 spaces
-	BRA		next_word
+	BRA		bcc_size		* deal with size + spaces
 	
 * Bcc size subroutine, using D1 containing last 8 bits
 bcc_size
-	CMPI.B	#0,D1			* if displacement byte is 0 
+	TST.B	D1				* if displacement byte is 0 
 	BEQ.S	bcc_w			* it is .W
 bcc_s
 	BSR		size_s			* if not, print .S
+	LEA		space5,A1
+	BSR		print			* print 5 spaces
+	
+	MOVE.L	memPtrGood,D6	* move current address to D6
+	ADD.L	D1,D6			* add the displacement to address
+	BSR		h2a_l			* print the displaced address
 	RTS
 bcc_w
 	BSR		size_w			* print .W
+	LEA		space5,A1
+	BSR		print			* print 5 spaces
+	
+	MOVE.L	memPtrGood,D6	* move current address to D6
+	MOVE.W	(A3)+,D1		* load next word to D1
+	ADD.L	D1,D6			* add the displacement to address
+	BSR		h2a_l			* print the displaced address
 	RTS
 
 ******************
@@ -408,23 +531,32 @@ bcc_w
 * MOVEQ
 ******************
 code0111
-	MOVE.W  #currWord,D0    * move opcode word to D0
+	MOVE.W  currWord,D0     * move opcode word to D0
+	MOVE.W	D0,D6			* move data to D6
+	
     ANDI.W  #mask08,D0		* mask bit 8
-	CMPI.W	#0,D0			* should all be 0
+	TST.W	D0				* should all be 0
 	BNE		bad_op			* bad if not
 	LEA		str_moveq,A1
 	BSR		print			* load MOVEQ to buffer
 	LEA		space5,A1
 	BSR		print			* print 5 spaces
 	
-	BRA		next_word
+	MOVE.B  pound,(A2)+		* load a # to buffer
+	BSR		h2a_b			* load data into buffer
+	MOVE.B  comma,(A2)+		* load a comma to buffer
+	MOVE.B  str_d,(A2)+		* load D to buffer
+	BSR		print_reg		* print register no
+	
+	RTS
 
 ******************
 * code 1000
 * DIVU, OR
 ******************
 code1000
-	MOVE.W  #currWord,D0    * move opcode word to D0
+	MOVE.W  currWord,D0     * move opcode word to D0
+	MOVE.W	D0,D6			* move data to D6
     ANDI.W  #mask0806,D0	* mask bits 8-6
     LSR.W   #6,D0			* shift D0 6 bits right
     
@@ -440,20 +572,51 @@ op_or
 	BSR		size3			* handle size printing
 	LEA		space6,A1
 	BSR		print			* print 6 spaces
-	BRA		next_word
+******************
+* <ea> V Dn -> Dn - 000,001,010
+* Dn V <ea> -> <ea> - 100,101,110
+******************
+	* branch to src
+	TST.B	D1			* compare to 0
+	BEQ		op_or_src
+	CMPI.B	#1,D1		* compare to 1
+	BEQ		op_or_src
+	CMPI.B	#2,D1		* compare to 2
+	BEQ		op_or_src
+* the rest is dest    
+op_or_dest
+	MOVE.B  str_d,(A2)+		* load D to buffer
+	BSR		print_reg		* print register no
+	MOVE.B  comma,(A2)+		* load a comma to buffer
+	BSR		ea_or_dest		* handle ea
+	RTS
+op_or_src
+	BSR		ea_or_src		* handle ea
+	MOVE.B  comma,(A2)+		* load a comma to buffer
+	MOVE.B  str_d,(A2)+		* load D to buffer
+	BSR		print_reg		* print register no
+	RTS
+    
 op_divu
 	LEA		str_divu,A1
 	BSR		print			* load DIVU to buffer
 	LEA		space6,A1
 	BSR		print			* print 6 spaces
-	BRA		next_word
+	
+	BSR		ea_divu			* handle ea
+	MOVE.B  comma,(A2)+		* load a comma to buffer
+	MOVE.B  str_d,(A2)+		* load D to buffer
+	BSR		print_reg		* print register no
+	
+	RTS
 
 ******************
 * code 1001
 * SUB
 ******************
 code1001
-	MOVE.W  #currWord,D0    * move opcode word to D0
+	MOVE.W  currWord,D0     * move opcode word to D0
+	MOVE.W	D0,D6			* move data to D6
     ANDI.W  #mask0806,D0	* mask bits 8-6
     LSR.W   #6,D0			* shift D0 6 bits right
     
@@ -469,7 +632,30 @@ code1001
 	BSR		size3			* handle size printing
 	LEA		space5,A1
 	BSR		print			* print 5 spaces
-	BRA		next_word
+******************
+* <ea> - Dn -> Dn - 000,001,010
+* Dn - <ea> -> <ea> - 100,101,110
+******************
+	* branch to src
+	TST.B	D1			* compare to 0
+	BEQ		op_sub_src
+	CMPI.B	#1,D1		* compare to 1
+	BEQ		op_sub_src
+	CMPI.B	#2,D1		* compare to 2
+	BEQ		op_sub_src
+* the rest is dest    
+op_sub_dest
+	MOVE.B  str_d,(A2)+		* load D to buffer
+	BSR		print_reg		* print register no
+	MOVE.B  comma,(A2)+		* load a comma to buffer
+	BSR		ea_sub_dest		* handle ea
+	RTS
+op_sub_src
+	BSR		ea_sub_src		* handle ea
+	MOVE.B  comma,(A2)+		* load a comma to buffer
+	MOVE.B  str_d,(A2)+		* load D to buffer
+	BSR		print_reg		* print register no
+	RTS
 
 ******************
 * code 1010
@@ -483,8 +669,9 @@ code1010
 * CMP
 ******************
 code1011
-    MOVE.W  #currWord,D0    * move opcode word to D0
+    MOVE.W  currWord,D0		* move opcode word to D0
     MOVE.W	D0,D1			* move opcode word to D1
+    MOVE.W	D0,D6			* move data to D6
     
     ANDI.W  #mask08,D0		* mask bit 8
     
@@ -503,19 +690,26 @@ code1011
 	BSR		size2			* handle size printing
 	LEA		space5,A1
 	BSR		print			* print 5 spaces
-	BRA		next_word
+	
+	BSR		ea_cmp			* handle ea
+	MOVE.B  comma,(A2)+		* load a comma to buffer
+	MOVE.B  str_d,(A2)+		* load D to buffer
+	BSR		print_reg		* print register no
+	
+	RTS
 
 ******************
 * code 1100
 * MULS, AND
 ******************
 code1100
-	MOVE.W  #currWord,D0    * move opcode word to D0
+	MOVE.W  currWord,D0     * move opcode word to D0
+	MOVE.W	D0,D6			* move data to D6
     ANDI.W  #mask0806,D0	* mask bits 8-6
     LSR.W   #6,D0			* shift D0 6 bits right
     
     CMPI.B	#7,D0			* MULS case
-    BEQ.S	op_muls
+    BEQ		op_muls
     CMPI.B	#3,D0			* bad case
     BEQ		bad_op
 * AND case left
@@ -526,20 +720,51 @@ op_and
 	BSR		size3			* handle size printing
 	LEA		space5,A1
 	BSR		print			* print 5 spaces
-	BRA		next_word
+******************
+* <ea> ^ Dn -> Dn - 000,001,010
+* Dn ^ <ea> -> <ea> - 100,101,110
+******************
+	* branch to src
+	TST.B	D1			* compare to 0
+	BEQ		op_and_src
+	CMPI.B	#1,D1		* compare to 1
+	BEQ		op_and_src
+	CMPI.B	#2,D1		* compare to 2
+	BEQ		op_and_src
+* the rest is dest    
+op_and_dest
+	MOVE.B  str_d,(A2)+		* load D to buffer
+	BSR		print_reg		* print register no
+	MOVE.B  comma,(A2)+		* load a comma to buffer
+	BSR		ea_and_dest		* handle ea
+	RTS
+op_and_src
+	BSR		ea_and_src		* handle ea
+	MOVE.B  comma,(A2)+		* load a comma to buffer
+	MOVE.B  str_d,(A2)+		* load D to buffer
+	BSR		print_reg		* print register no
+	RTS
+	
 op_muls
 	LEA		str_muls,A1
 	BSR		print			* load MULS to buffer
 	LEA		space6,A1
 	BSR		print			* print 6 spaces
-	BRA		next_word
+	
+	BSR		ea_muls			* handle ea
+	MOVE.B  comma,(A2)+		* load a comma to buffer
+	MOVE.B  str_d,(A2)+		* load D to buffer
+	BSR		print_reg		* print register no
+	
+	RTS
 
 ******************
 * code 1101
 * ADD, ADDA
 ******************
 code1101
-	MOVE.W  #currWord,D1    * move opcode word to D1
+	MOVE.W  currWord,D1     * move opcode word to D1
+	MOVE.W	D1,D6			* move data to D6
     ANDI.W  #mask0806,D1	* mask bits 8-6
     LSR.W   #6,D1			* shift D1 6 bits right
     
@@ -556,7 +781,30 @@ op_add
 	BSR		size3			* handle size printing
 	LEA		space5,A1
 	BSR		print			* print 5 spaces
-	BRA		next_word
+******************
+* <ea> + Dn -> Dn - 000,001,010
+* Dn + <ea> -> <ea> - 100,101,110
+******************
+	* branch to src
+	TST.B	D1			* compare to 0
+	BEQ		op_add_src
+	CMPI.B	#1,D1		* compare to 1
+	BEQ		op_add_src
+	CMPI.B	#2,D1		* compare to 2
+	BEQ		op_add_src
+* the rest is dest    
+op_add_dest
+	MOVE.B  str_d,(A2)+		* load D to buffer
+	BSR		print_reg		* print register no
+	MOVE.B  comma,(A2)+		* load a comma to buffer
+	BSR		ea_add_dest		* handle ea
+	RTS
+op_add_src
+	BSR		ea_add_src		* handle ea
+	MOVE.B  comma,(A2)+		* load a comma to buffer
+	MOVE.B  str_d,(A2)+		* load D to buffer
+	BSR		print_reg		* print register no
+	RTS
 
 op_adda
 	LEA		str_adda,A1
@@ -564,15 +812,22 @@ op_adda
 	BSR		size3			* handle size printing
 	LEA		space4,A1
 	BSR		print			* print 4 spaces
-	BRA		next_word
+	
+	BSR		ea_adda			* handle ea
+	MOVE.B  comma,(A2)+		* load a comma to buffer
+	MOVE.B  str_a,(A2)+		* load A to buffer
+	BSR		print_reg		* print register no
+	
+	RTS
 
 ******************
 * code 1110
 * LSL, LSR, ASR, ASL, ROL, ROR
 ******************
 code1110
-	MOVE.W  #currWord,D1    * move opcode word to D1
-	MOVE.W	D1,D0			* move opcode word to D0
+	MOVE.W  currWord,D0		* move opcode word to D0
+    MOVE.W	D0,D1			* move opcode word to D1
+    MOVE.W	D0,D6			* move opcode word to D6
 	
     ANDI.W  #mask0706,D1	* mask bits 7-6
     LSR.W   #6,D1			* shift D1 6 bits right
@@ -596,49 +851,73 @@ reg_ver
 	* ROd case left
 	CMPI.B	#3,D0			* ensure correct op
 	BNE		bad_op			* bad case
-	MOVE.W  #currWord,D0    * move opcode word to D0
+	MOVE.W  currWord,D0     * move opcode word to D0
 	ANDI.W  #mask08,D0		* mask bit 8
-	CMPI.B	#0,D0			* right dir
+	TST.W	D0				* right dir
 	BNE.S	op_rol
 op_ror
 	LEA		str_ror,A1
 	BSR		print			* print ROR
-	BSR		size_space
+	BRA		1110_end
 op_rol
 	LEA		str_rol,A1
 	BSR		print			* print ROL
-	BSR		size_space
+	BRA		1110_end
 op_asd
-	MOVE.W  #currWord,D0    * move opcode word to D0
+	MOVE.W  currWord,D0     * move opcode word to D0
 	ANDI.W  #mask08,D0		* mask bit 8
-	CMPI.B	#0,D0			* right dir
+	TST.W	D0				* right dir
 	BNE.S	op_asl
 op_asr
 	LEA		str_asr,A1
 	BSR		print			* print ASR
-	BSR		size_space
+	BRA		1110_end
 op_asl
 	LEA		str_asl,A1
 	BSR		print			* print ASL
-	BSR		size_space
+	BRA		1110_end
 op_lsd
-	MOVE.W  #currWord,D0    * move opcode word to D0
+	MOVE.W  currWord,D0     * move opcode word to D0
 	ANDI.W  #mask08,D0		* mask bit 8
-	CMPI.B	#0,D0			* right dir
+	TST.W	D0				* right dir
 	BNE.S	op_lsl
 op_lsr
 	LEA		str_lsr,A1
 	BSR		print			* print LSR
-	BSR		size_space
+	BRA		1110_end
 op_lsl
 	LEA		str_lsl,A1
 	BSR		print			* print LSL
-	BSR		size_space
-size_space
+	BRA		1110_end
+1110_end
 	BSR		size2			* handle size
 	LEA		space5,A1
 	BSR		print			* print 5 spaces
-
+	MOVE.W  currWord,D0     * move opcode word to D0
+	ANDI.W  #mask05,D0		* mask bit 5 (i/r field)
+	LSR.W   #5,D0			* shift D0 5 bits right
+	TST.B	D0
+	BEQ		1110_imd		* imediate src if i/r field 0
+* else, register src
+1110_reg
+	MOVE.B	str_d,(A2)+		* load D to buffer
+	BSR		print_reg		* load reg no to buffer
+	MOVE.B	comma,(A2)+		* load comma to buffer
+	BRA		1110_dest
+1110_imd
+	MOVE.B	pound,(A2)+		* load # to buffer
+	BSR		print_reg		* load reg no to buffer
+	MOVE.B	comma,(A2)+		* load comma to buffer
+	BRA		1110_dest
+* print destination data reg
+1110_dest
+	MOVE.B	str_d,(A2)+		* load D to buffer
+	MOVE.W  currWord,D6     * move opcode word to D6
+	LSL.W	#8,D6
+	LSL.W	#1,D6			* shift D6 9 bits left
+	BSR		print_reg		* load reg no to buffer
+	RTS
+	
 ******************
 * bits 11-8
 * 0 - ASR
@@ -651,54 +930,64 @@ size_space
 * 7 - ROL
 ******************
 mem_ver
-	LEA     bra_table,A0	* Index into the table
+	LEA     jmp_table_1110,A0	* Index into the table
 	ANDI.W  #mask1108,D0	* mask bits 11-8
     LSR.W   #8,D0			* shift D0 8 bits right
-    MULU    #$A,D0			* Form offset     
+    MULU    #6,D0			* Form offset     
     JSR     0(A0,D0)        * Jump indirect with index
-bra_table
+    
+jmp_table_1110
+	JMP		op_asr_m
+	JMP		op_asl_m
+	JMP		op_lsr_m
+	JMP		op_lsl_m
+	JMP		op_roxr_m
+	JMP		op_roxl_m
+	JMP		op_ror_m
+	JMP		op_rol_m
+
 op_asr_m
 	LEA		str_asr,A1
 	BSR		print			* load ASR to buffer
-	BRA		print7spaces
+	BRA		op_asd_m
 op_asl_m
 	LEA		str_asl,A1
 	BSR		print			* load ASL to buffer
-	BRA		print7spaces
+	BRA		op_asd_m
+op_asd_m
+	LEA		space7,A1
+	BSR		print			* prints 7 spaces
+	BSR		ea_asd			* handle ea
+	RTS
 op_lsr_m
 	LEA		str_lsr,A1
 	BSR		print			* load LSR to buffer
-	BRA		print7spaces
+	BRA		op_lsd_m
 op_lsl_m
 	LEA		str_lsl,A1
 	BSR		print			* load LSL to buffer
-	BRA		print7spaces
+	BRA		op_lsd_m
+op_lsd_m
+	LEA		space7,A1
+	BSR		print			* prints 7 spaces
+	BSR		ea_lsd			* handle ea
+	RTS
 op_roxr_m
-	NOP						* ROXR not supported
-	NOP						* 7 op words filler
-	NOP						* 5 NOPs + BRA bad_op
-	NOP
-	NOP
-	BRA		bad_op			* 2 op words
 op_roxl_m
-	NOP						* ROXL not supported
-	NOP						* 7 op words filler
-	NOP						* 5 NOPs + BRA bad_op
-	NOP
-	NOP
-	BRA		bad_op			* 2 op words
+	BRA		bad_op			* not supported
 op_ror_m
 	LEA		str_ror,A1
 	BSR		print			* load ROR to buffer
-	BRA		print7spaces
+	BRA		op_rod_m
 op_rol_m
 	LEA		str_rol,A1
 	BSR		print			* load ROL to buffer
-	BRA		print7spaces
-print7spaces
+	BRA		op_rod_m
+op_rod_m
 	LEA		space7,A1
 	BSR		print			* prints 7 spaces
-	BSR		next_word
+	BSR		ea_rod			* handle ea
+	RTS
 
 ******************
 * code 1111
@@ -706,6 +995,102 @@ print7spaces
 ******************
 code1111
     BRA     bad_op			* not supported
+    
+* end of opcodes
+*****************************************************************************************************************************************************
+*************************************************************
+*Invalid ea: None
+*mode-bits:3-5 reg-bits:0-2 size-bits:12-13
+*************************************************************
+ea_move_src  RTS
+
+*************************************************************
+*Invalid ea: An, #<data>
+*mode-bits:6-8 reg-bits:9-11
+*************************************************************
+ea_move_dest RTS
+
+*************************************************************
+*Invalid ea: None
+*mode-bits:3-5 reg-bits:0-2 size-bits:12-13
+*************************************************************
+ea_movea_src RTS
+
+*************************************************************
+*Invalid ea: Dn, An, #<Data>, (An)+
+*mode-bits:3-5 reg-bits:0-2 size-bits:6 dr-bit:10 -> 0
+*************************************************************
+ea_movem_regmem  RTS
+
+*************************************************************
+*Invalid ea: Dn, An, #<Data>, -(An)
+*mode-bits:3-5 reg-bits:0-2 size-bits:6 dr-bit:10 -> 0
+*************************************************************
+ea_movem_memreg  RTS
+
+*************************************************************
+*Invalid ea: Dn, An, #<Data>
+*mode-bits:3-5 reg-bits:0-2 Opmode-bits:6-8
+*Byte Word Long Operation
+*000  001  010   < ea > + Dn ? Dn
+*100  101  110   Dn + < ea > ? < ea > 
+*************************************************************
+ea_add_dest
+	RTS
+ea_add_src
+	RTS
+
+*************************************************************
+*Invalid ea: none
+*mode-bits:3-5 reg-bits:0-2 Opmode-bits:6-8
+*Opmode Field: 011-word operation 111-long opderation
+*************************************************************
+ea_adda  RTS
+
+*************************************************************
+*Invalid ea:An, #<Data>
+*mode-bits:3-5 reg-bits:0-2 size-bits:6-7
+*00-B 01-W 10-L
+*************************************************************
+ea_addi  RTS
+
+ea_addq	 RTS
+
+ea_sub_dest
+	RTS
+ea_sub_src
+	RTS
+ea_muls  RTS
+
+ea_divu  RTS
+
+ea_lea   RTS
+
+ea_clr   RTS
+
+ea_and_dest
+	RTS
+ea_and_src
+	RTS
+ea_or_dest
+	RTS
+ea_or_src
+	RTS
+ea_lsl   RTS
+
+ea_lsr   RTS
+
+ea_asr   RTS
+
+ea_asl   RTS
+
+ea_rol   RTS
+
+ea_ror   RTS
+
+ea_cmp   RTS
+
+ea_jsr   RTS
         
 ******************
 * Subroutine: chk_flag
@@ -730,7 +1115,7 @@ fail
 ******************
 bad_op
 	MOVE.B	#2,D4			* set flag for bad opcode
-    BSR		next_word
+    RTS
 
 ******************
 * Subroutine: print_data TEMPORARY
@@ -738,32 +1123,47 @@ bad_op
 print_data
     STOP	#$2700
     
-* temp print SR
+******************
+* Subroutine: print
+* Prints the 0 terminated string
+* put address to data in A1
+******************
 print
 print_loop
     MOVE.B  (A1)+,(A2)+     * move a byte, and progress both pointers
 print_main
-	CMPI.B  #00,(A1)        * check if we hit 00
+	TST.B	(A1)        	* check if we hit 00
 	BNE     print_loop      * if not, push next byte to buffer
     RTS
     
-* temp print memory address
-print_addr
+******************
+* Subroutine: print_word
+* Loads a word in A1 to buffer
+******************
+print_word
 	MOVE.B	#0,count		* initialize counter
-print_addr_loop
+print_word_loop
     MOVE.B  (A1)+,(A2)+     * move a byte, and progress both pointers
     ADD.B	#1,count		* increase counter
-print_addr_main
-	CMPI.B  #8,count        * check if we hit 00
-	BNE     print_addr_loop * if not, push next byte to buffer
-	LEA		space2,A1
-	BSR.S	print			* print 2 spaces
+print_word_main
+	CMPI.B  #2,count        * check if we hit 00
+	BNE     print_word_loop * if not, push next byte to buffer
+    RTS
+    
+******************
+* Subroutine: print_long
+* Loads a long in A1 to buffer
+******************
+print_long
+	MOVE.B	#0,count		* initialize counter
+print_long_loop
+    MOVE.B  (A1)+,(A2)+     * move a byte, and progress both pointers
+    ADD.B	#1,count		* increase counter
+print_long_main
+	CMPI.B  #4,count        * check if we hit 00
+	BNE     print_long_loop * if not, push next byte to buffer
     RTS
         
-* temp next word SR
-next_word
-		STOP	#$2700
-		
 ***********************************************************
 * Size subroutines
 * Uses D1
@@ -827,24 +1227,113 @@ size3
 		
 ******************
 * Size printing subroutines
-* Prints b/w/l/s
+* Prints b/w/l/s, then sets the flag
 ******************
 size_b
-	LEA		str_b,A1	* size is b
-	JSR		print
-	RTS
+	MOVE.B	dot,(A2)+
+	MOVE.B	str_b,(A2)+	* size is b
+	BRA		set_b
 size_w
-	LEA		str_w,A1	* size is w
-	JSR		print
-	RTS
+	MOVE.B	dot,(A2)+
+	MOVE.B	str_w,(A2)+	* size is w
+	BRA		set_w
 size_l
-	LEA		str_l,A1	* size is l
-	JSR		print
-	RTS
+	MOVE.B	dot,(A2)+
+	MOVE.B	str_l,(A2)+	* size is l
+	BRA		set_l
 size_s
-	LEA		str_s,A1	* size is l
-	JSR		print
+	MOVE.B	dot,(A2)+
+	MOVE.B	str_b,(A2)+	* size is s
+	BRA		set_s
+	
+******************
+* Size flag setting subroutines
+* Sets flag size for b/w/l/s
+******************
+set_b
+	MOVE.B	#0,size		* set size flag b
 	RTS
+set_w
+	MOVE.B	#1,size		* set size flag w
+	RTS
+set_l
+	MOVE.B	#2,size		* set size flag l
+	RTS
+set_s
+	MOVE.B	#3,size		* set size flag s
+	RTS
+
+******************
+* Subroutine: print register
+* Prints register number in bits 11-9
+* Load currword into D6 prior to calling this SR
+******************
+print_reg
+	ANDI.W  #mask1109,D6    * mask bits 11-9 for address reg
+    LSR.W   #8,D6
+    LSR.W   #1,D6           * shift D6 9 bits right
+    BSR		h2a_b			* load address reg to buffer
+    RTS
+
+******************
+* Opcode helper subroutines
+* hex to ascii, but with load to buffer
+******************
+h2a_l
+	SWAP	D6				* to get first word
+	BRA		h2a_w
+	SWAP	D6				* to get second word
+	BSR		h2a_w
+	RTS
+h2a_w
+	BSR		hex_to_ascii_w	* convert
+	MOVE.L	D7,buffTemp		* load to buffTemp
+	LEA		buffTemp,A1
+	BSR		print_long		* load to buffer
+	RTS
+h2a_b
+	BSR		hex_to_ascii_b	* convert
+	MOVE.W	D7,buffTemp		* load to buffTemp
+	LEA		buffTemp,A1
+	BSR		print_word		* load to buffer
+	RTS
+
+***********************************************************
+* conversion subroutines
+* Converts D6 to ascii, and stores it in D7
+*   D6: up to word length, number to convert
+*   D7: converted number
+* Please make sure that D7 is clear beforehand
+* l version loads to buffer, others don't
+******************	
+hex_to_ascii_w
+    BSR.S   hex_to_ascii_b  * convert second byte
+    LSR.W   #8,D6
+    SWAP    D7              * make space for first byte
+    BSR.S   hex_to_ascii_b  * convert first byte
+    SWAP    D7              * put them in correct order
+    RTS   
+    
+hex_to_ascii_b
+    MOVE.B  D6,D7
+    LSR.B   #4,D7           * isolate first digit
+    BSR.S   hex_to_ascii    * convert to ascii
+    LSL.W   #8,D7           * put it on the left side
+    MOVE.B  D6,D7
+    AND.B   #%00001111,D7   * mask first bit out
+    BSR.S   hex_to_ascii    * convert to ascii
+    RTS    
+    
+hex_to_ascii
+    CMPI.B  #9,D7
+    BGT     char_to_ascii
+no_to_ascii
+    ADD.B   #$30,D7
+    RTS
+char_to_ascii
+    ADD.B   #$37,D7
+    RTS
+
 ***********************************************************
 
 * Opcode strings
@@ -878,10 +1367,10 @@ str_jsr	    DC.B	'JSR',0
 str_rts  	DC.B	'RTS',0
 
 * Size strings
-str_b		DC.B    '.B',0
-str_w       DC.B    '.W',0
-str_l       DC.B    '.L',0
-str_s       DC.B    '.S',0
+str_b		DC.B    'B',0
+str_w       DC.B    'W',0
+str_l       DC.B    'L',0
+str_s       DC.B    'S',0
 
 * Misc strings
 space1		DC.B	' ',0
@@ -891,12 +1380,26 @@ space4		DC.B	'    ',0
 space5		DC.B	'     ',0
 space6		DC.B	'      ',0
 space7		DC.B	'       ',0
+comma		DC.B	',',0
+pound		DC.B	'#',0
+dol			DC.B	'$',0
+eight		DC.B	'8',0
+dot			DC.B	'.',0
 
-* Buffer (temp)
-buffer      DS.B    20      * 10b for memory, 10b for opcode
+* EA strings
+str_d		DC.B	'D',0
+str_a		DC.B	'A',0
+str_lp		DC.B	'(',0
+str_rp		DC.B	')',0
+
+* Variables
+buffer      DS.B    50      * 10b for memory, 10b for opcode
 count		DS.B	1		* counter
-currAddr	DS.L	1		* address of current word
-
+currWord	DS.W	1		* current word
+size		DS.B	1		* size for EA
+memPtr      DS.L    1       * moving ptr
+memPtrGood  DS.L    1       * address to print
+buffTemp	DS.L	2		* workaround for loading h2a to buff
         	END     $400 
 
 
