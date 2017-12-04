@@ -34,7 +34,44 @@ mask0700		EQU		$FF
 start
     BSR.S   welcome                 * welcome, ask for start/end
     JSR     clear_all_reg
-    JSR     read  
+    JSR     read
+    
+check_restart_input
+    LEA     restartMSG,A1
+    MOVE.B  #13,D0  
+    TRAP    #15                     * ask user to input y or n for restarting
+    LEA     user_input,A1
+    MOVE.B  #2,D0
+    TRAP    #15                     * get user input
+    CMPI.B  #1,D1
+    BNE     bad_input               * bad input if input is not 1 length
+    CLR     D7
+    MOVE.B  user_input,D7
+    CMPI.B  #$59,D7
+    BEQ     yes_input               * uppercase y input
+    CMPI.B  #$79,D7
+    BEQ     yes_input               * lowercase y input
+    CMPI.B  #$4E,D7
+    BEQ     no_input                * uppercase n input
+    CMPI.B  #$6E,D7
+    BEQ     no_input                * lowercase n input
+    BRA     bad_input               * neither y or n is bad input
+yes_input
+    BRA     start
+
+no_input
+    BRA     end
+
+bad_input
+    LEA     restartEMSG,A1        * error message
+    MOVE.B  #14,D0  
+    TRAP    #15
+    BRA     check_restart_input     * ask again for input
+
+end
+    LEA     thankMSG,A1
+    MOVE.B  #13,D0                  * thank 
+    TRAP    #15
     MOVE.B  #9,D0
     TRAP    #15                     * haltsim
     
@@ -69,9 +106,7 @@ get_start_addr
     MOVE.B  #14,D0
     TRAP    #15                     * ask for starting address
     BSR.S   get_addr
-    MOVE.L  #0,A6
-    MOVEA.L #start_addr,A6
-    MOVE.L  D6,0(A6)                * copy converted addr to start_addr
+    MOVE.L  D6,start_addr           * copy converted addr to start_addr
     MOVE.L  D6,D4                   * min address now start_addr
     RTS
     
@@ -80,9 +115,7 @@ get_end_addr
     MOVE.B  #14,D0
     TRAP    #15                     * ask for ending address
     BSR.S   get_addr
-    MOVE.L  #0,A6
-    MOVEA.L #end_addr,A6
-    MOVE.L  D6,0(A6)                * copy converted addr to start_addr
+    MOVE.L  D6,end_addr             * copy converted addr to start_addr
     RTS
     
 get_addr
@@ -164,11 +197,7 @@ invalid_addr
     
 finish_ascii_to_hex
     RTS 
-    
-    
-    
-    
-    
+       
 *-----------------------------------------------------------
 * READING AND DECODING
 *-----------------------------------------------------------
@@ -180,11 +209,11 @@ finish_ascii_to_hex
 * A2 = buffer ptr
 *****************
 read
-    MOVEA.L memPtrGood,A1
+    
     MOVE.L  start_addr,D3
     MOVE.L  D3,memPtrGood   * set memPtrGood to start_addr
     MOVE.L  D3,memPtr       * also set memPtr to start_addr
-    ADDI.B  #30,linecounter
+    MOVE.B  #30,linecounter
     
 next_word
     JSR     clear_all_reg
@@ -193,7 +222,6 @@ next_word
     BSR		print_addr		* print address
 	LEA     stack,SP        * Load the SP
 	LEA     jmp_table,A0    * Index into the table
-	
 	BSR.S   read_next_word       * read next word
 	CLR.L   D0              
     MOVE.W  currWord,D0     * put currWord in D0
@@ -202,43 +230,57 @@ next_word
     MULU    #6,D0           * Form offset     
     JSR     0(A0,D0)        * Jump indirect with index
 
-    
+next_word_cont
     * after opcode section, determine if valid or not
     JSR     chk_flag        * will go to print_data if bad
-    BRA     print_buffer    * else print good
     SUBI.B  #1,linecounter
-    BNE     instruction_finish_return
+    BNE     instruction_finish_return 
         
 instruction_next_page       * resets line counter when equals 1
-    ADDI.B  #30,linecounter
-    LEA     returnMsg,A1
+    MOVE.B  #30,linecounter
+    LEA     continueMSG,A1
     MOVE.B  #14,D0
     TRAP    #15             * ask user to hit enter to next page
     LEA     user_input,A1
     MOVE.B  #2,D0
     TRAP    #15
 
-instruction_finish_return
-    RTS
-    BRA     next_word  
-    
+instruction_finish_return    
     * if not reached endAddr, go again
     MOVE.L  end_addr,D1
     MOVE.L  memPtrGood,D2
     CMP.L   D1,D2
     BGE     finish_read              * finish reading when currAddr >= end_addr
+    BRA     next_word                * elase go to next word
 
 *****************
 * Subroutine: Reads next word
 *****************   
 read_next_word
-    MOVE.W  memPtr,currWord         * update currWord
-    ADDI.L  #$00000004,memPtr       * increment memPtr by one word
+    MOVE.L  memptr,A5
+    SUBI.W  #0,-(A5)
+    MOVE.W  (A5),currWord
+    MOVE.W  memPtr,currWord         * update currWord         
     RTS
      
 finish_read
-    RTS       
-        
+    LEA     finishMSG,A1
+    MOVE.B  #13,D0
+    TRAP    #15
+    BRA     check_restart_input       
+
+*****************
+* JUMP TABLE
+* U
+* M
+* P
+* 
+* T
+* A
+* B
+* L
+* E
+*****************         
 jmp_table      
 	JMP		code0000		* ADDI
 	JMP		code0001		* MOVE.B
@@ -296,7 +338,7 @@ code0001
     BSR		size_b			* load .B to buffer
     LEA		space4,A1
     BSR		print			* load 4 spaces to buffer
-    BRA		next_word
+    BRA		next_word_cont
 
 ******************
 * code 0010
@@ -314,14 +356,14 @@ op_movea_l
     BSR		size_l			* load .L to buffer
     LEA		space3,A1
     BSR		print			* load 3 spaces to buffer
-    BRA		next_word
+    BRA		next_word_cont
 op_move_l
 	LEA		str_move,A1
     BSR		print			* load str ADDI to buffer
     BSR		size_l			* load .L to buffer
     LEA		space4,A1
     BSR		print			* load 4 spaces to buffer
-    BRA		next_word
+    BRA		next_word_cont
     
 ******************
 * code 0011
@@ -339,14 +381,14 @@ op_movea_w
     BSR		size_W			* load .W to buffer
     LEA		space3,A1
     BSR		print			* load 3 spaces to buffer
-    BRA		next_word
+    BRA		next_word_cont
 op_move_w
 	LEA		str_move,A1
     BSR		print			* load str ADDI to buffer
     BSR		size_W			* load .W to buffer
     LEA		space4,A1
     BSR		print			* load 4 spaces to buffer
-    BRA		next_word
+    BRA		next_word_cont
     
 ************************************************************************
 * code 0100
@@ -391,7 +433,7 @@ op_clr_b
 	LEA		str_clr,A1
 	BSR		print			* print CLR
 	BSR     size_b          * print .B
-	BRA		next_word
+	BRA		next_word_cont
 
 ******************
 * Bits 08-06
@@ -415,7 +457,7 @@ op_clr_w
 	BSR     size_w          * print .W
 	LEA		space5,A1
 	BSR		print			* print 5 spaces
-	BRA		next_word
+	BRA		next_word_cont
 	
 nop_or_rts
     MOVE.W  #currWord,D0    * load currWord to D0
@@ -439,7 +481,7 @@ op_nop
 	BSR		print			* load NOP to buffer
 	LEA		space7,A1
 	BSR		print			* print 7 spaces
-	BRA		next_word
+	BRA		next_word_cont
 
 op_rts
     CMPI.B  #6,D1           * check rest of bits
@@ -448,7 +490,7 @@ op_rts
 	BSR		print			* load RTS to buffer
 	LEA		space7,A1
 	BSR		print			* print 7 spaces
-	BRA		next_word
+	BRA		next_word_cont
 
 ******************
 * Bits 08-06
@@ -473,20 +515,20 @@ op_movem_w
 	BSR		size_w			* load .W to buffer
 	LEA		space3,A1
 	BSR		print			* print 3 spaces
-	BRA		next_word
+	BRA		next_word_cont
 op_jsr
 	LEA		str_jsr,A1
 	BSR		print			* load JSR to buffer
 	LEA		space7,A1
 	BSR		print			* print 7 spaces
-	BRA		next_word
+	BRA		next_word_cont
 op_clr_l
 	LEA		str_clr,A1
 	BSR		print			* load CLR to buffer
 	BSR		size_l			* load .L to buffer
 	LEA		space5,A1
 	BSR		print			* print 5 spaces
-	BRA		next_word
+	BRA		next_word_cont
 
 ******************
 * Bits 08-06
@@ -505,7 +547,7 @@ op_movem_l
 	BSR		size_L			* load .L to buffer
 	LEA		space3,A1
 	BSR		print			* print 3 spaces
-	BRA		next_word
+	BRA		next_word_cont
 
 ******************
 * Bits 08-06
@@ -516,7 +558,7 @@ op_lea
 	BSR		print			* load LEA to buffer
 	LEA		space7,A1
 	BSR		print			* print 7 spaces
-	BRA		next_word
+	BRA		next_word_cont
 ************************************************************************
 
 ******************
@@ -544,7 +586,7 @@ code0101
     BSR		size2			* handle size
     LEA		space4,A1
     BSR		print			* load 4 spaces to buffer
-    BRA		next_word
+    BRA		next_word_cont
 
 ******************
 * code 0110
@@ -574,21 +616,21 @@ op_ble
 	BSR		bcc_size		* deal with size
 	LEA		space5,A1
 	BSR		print			* print 5 spaces
-	BRA		next_word
+	BRA		next_word_cont
 op_bcc
 	LEA		str_bcc,A1
 	BSR		print			* load BCC to buffer
 	BSR		bcc_size		* deal with size
 	LEA		space5,A1
 	BSR		print			* print 5 spaces
-	BRA		next_word
+	BRA		next_word_cont
 op_bgt
 	LEA		str_bgt,A1
 	BSR		print			* load BGT to buffer
 	BSR		bcc_size		* deal with size
 	LEA		space5,A1
 	BSR		print			* print 5 spaces
-	BRA		next_word
+	BRA		next_word_cont
 	
 * Bcc size subroutine, using D1 containing last 8 bits
 bcc_size
@@ -615,7 +657,7 @@ code0111
 	LEA		space5,A1
 	BSR		print			* print 5 spaces
 	
-	BRA		next_word
+	BRA		next_word_cont
 
 ******************
 * code 1000
@@ -638,13 +680,13 @@ op_or
 	BSR		size3			* handle size printing
 	LEA		space6,A1
 	BSR		print			* print 6 spaces
-	BRA		next_word
+	BRA		next_word_cont
 op_divu
 	LEA		str_divu,A1
 	BSR		print			* load DIVU to buffer
 	LEA		space6,A1
 	BSR		print			* print 6 spaces
-	BRA		next_word
+	BRA		next_word_cont
 
 ******************
 * code 1001
@@ -667,7 +709,7 @@ code1001
 	BSR		size3			* handle size printing
 	LEA		space5,A1
 	BSR		print			* print 5 spaces
-	BRA		next_word
+	BRA		next_word_cont
 
 ******************
 * code 1010
@@ -701,7 +743,7 @@ code1011
 	BSR		size2			* handle size printing
 	LEA		space5,A1
 	BSR		print			* print 5 spaces
-	BRA		next_word
+	BRA		next_word_cont
 
 ******************
 * code 1100
@@ -724,13 +766,13 @@ op_and
 	BSR		size3			* handle size printing
 	LEA		space5,A1
 	BSR		print			* print 5 spaces
-	BRA		next_word
+	BRA		next_word_cont
 op_muls
 	LEA		str_muls,A1
 	BSR		print			* load MULS to buffer
 	LEA		space6,A1
 	BSR		print			* print 6 spaces
-	BRA		next_word
+	BRA		next_word_cont
 
 ******************
 * code 1101
@@ -754,7 +796,7 @@ op_add
 	BSR		size3			* handle size printing
 	LEA		space5,A1
 	BSR		print			* print 5 spaces
-	BRA		next_word
+	BRA		next_word_cont
 
 op_adda
 	LEA		str_adda,A1
@@ -762,7 +804,7 @@ op_adda
 	BSR		size3			* handle size printing
 	LEA		space4,A1
 	BSR		print			* print 4 spaces
-	BRA		next_word
+	BRA		next_word_cont
 
 ******************
 * code 1110
@@ -815,19 +857,19 @@ bra_table
 op_asr_m
 	LEA		str_asr,A1
 	BSR		print			* load ASR to buffer
-	BRA		next_word
+	BRA		next_word_cont
 op_asl_m
 	LEA		str_asl,A1
 	BSR		print			* load ASL to buffer
-	BRA		next_word
+	BRA		next_word_cont
 op_lsr_m
 	LEA		str_lsr,A1
 	BSR		print			* load LSR to buffer
-	BRA		next_word
+	BRA		next_word_cont
 op_lsl_m
 	LEA		str_lsl,A1
 	BSR		print			* load LSL to buffer
-	BRA		next_word
+	BRA		next_word_cont
 op_roxr_m
 	NOP						* ROXR not supported
 	NOP						* 7 op words filler
@@ -845,11 +887,11 @@ op_roxl_m
 op_ror_m
 	LEA		str_ror,A1
 	BSR		print			* load ROR to buffer
-	BRA		next_word
+	BRA		next_word_cont
 op_rol_m
 	LEA		str_rol,A1
 	BSR		print			* load ROL to buffer
-	BRA		next_word
+	BRA		next_word_cont
 
 ******************
 * code 1111
@@ -870,7 +912,7 @@ chk_flag
 		CMPI.B	#0,D4
 		BNE.S	fail
 good
-		RTS
+		BRA     print_good
 fail
 		BRA		print_data
 
@@ -879,26 +921,39 @@ fail
 * If the opcode is not supported or garbage bits
 ******************
 bad_op
-    STOP        #$2700
+        ADDI.B  #1,D4
+        RTS
+        BRA		next_word_cont
 
 ******************
 * Subroutine: print_data
 * outputs <memloc>  DATA      <data>
 ******************
+print_good
+    JSR     print_buffer        * print the puffer
+    MOVE.L  memPtr,memPtrGood   * set the memPtrGood to memPtr
+    RTS
+
 print_data
-    ADDI.L  #4,memPtrGood           * increment memPtrGood, put 
-    MOVE.L  memPtrGood,memPtr
     JSR     output_memory   * display memory location
+    ADDI.L  #4,memPtrGood   * increment memPtrGood, put 
+    MOVE.L  memPtrGood,memPtr
     LEA     str_data,A1
     MOVE.B  #14,D0
     TRAP    #15             * display 'DATA'
     LEA     space6,A1       
     TRAP    #15             * add 2 spaces
     CLR     D1
-    MOVE.W  currWord,D1
-    MOVE.B  #15,D0
-    MOVE.B  #16,D2
-    TRAP    #15             * display data word
+    
+data_to_buffer
+    SUBI.W  #1,currWord
+    ADD.W   currWord,D6
+    JSR     hex_to_ascii_w
+    LEA     dataToPrint,A1  
+    MOVE.L  D7,(A1)         * load data to A1 for printing
+    MOVE.B  #0,D0
+    MOVE.B  #4,D1
+    TRAP    #15
     RTS 
     
 * temp print SR
@@ -1011,36 +1066,8 @@ output_memory_finish
     MOVEA.L #0,A1               * clear everything
     RTS
     
-*add_data_to_buffer
-*    LEA     word,A4
-*    MOVE.B  #2,D3                   * will convert 2 bytes
-*data_to_buffer_loop
-*    CLR.L   D5
-*    CLR.L   D6
-*    MOVE.B  (A4)+,D5
-*    
-*    SUBI.B  #1,D3
-*    BNE     data_to_buffer_loop     * all bytes of word converted, added
-*    
-*    
-*convert_1_byte
-*    ADD.B   D5,D6
-*    LSR.B   #4,D6                   * remove right bits
-*    BSR.S   ascii_to_hex            * convert first byte
-*    LSL.W   #8,D6
-*    ADD.B   D5,D6
-*    ANDI.B  #%00001111,D6            * mask out left bits
-*    BSR.S   hex_to_ascii            * convert second byte
-*    MOVE.W  D6,(A2)+                * put converted byte into buffer
-*    RTS
-*    
-*finish_convert_data
-*    CLR.L   D3
-*    CLR.L   D5
-*    CLR.L   D6
-*    JSR
 
-******************
+***********************************************************
 * conversion subroutines
 * Converts D6 to ascii, and stores it in D7
 *   D6: up to word length, number to convert
@@ -1256,7 +1283,13 @@ welcomeMSG  DC.B    'Welcome to the Motorola 68000 disassembler!',CR,LF,0
 startMSG    DC.B    'Please enter in a starting address from $6000 to $00FFFFFF: ',CR,LF,0
 endMSG      DC.B    'Please enter in an end location up to $00FFFFFF: ',CR,LF,0
 addrErrMSG  DC.B    'That is not a valid address. Please enter a valid address',CR,LF,0
+continueMSG DC.B    'Press enter to continue...',CR,LF,0
+finishMSG   DC.B    'Dissassembly finished.',0
+restartMSG  DC.B    'Would you like to restart at a different address?(Y/N): ',0
+restartEMSG DC.B    'Not a proper input.',CR,LF,0
+thankMSG    DC.B    'Thank you for using our disassembler. We hope to see you again!',0  
 returnMSG   DC.B    '',CR,LF,0
+dataToPrint DS.L    1       * if data needs to be printed
         	END     $400 
 
 
