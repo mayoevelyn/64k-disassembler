@@ -158,7 +158,7 @@ get_addr
    CMP.B    #1,D3             
    BEQ      get_addr                * if invalid input flag is set, ask again
   
-get_addr_loop                   
+get_addr_loop                  
     MOVE.B  (A1)+,D2
     ASL.L   #4,D6
     BSR.S   ascii_to_hex
@@ -168,6 +168,9 @@ get_addr_loop
     SUBI.B  #1,D1
     BNE     get_addr_loop           * keep looping until reach end of length   
     CMP.B   #1,D3                   
+    BEQ     get_addr                * if invalid input flag is set, ask again
+    BSR.S   check_input_odd
+    CMP.B   #1,D3     
     BEQ     get_addr                * if invalid input flag is set, ask again
     BSR.S   check_input_range
     CMP.B   #1,D3     
@@ -186,6 +189,15 @@ check_input_range
     BGT     invalid_addr
     RTS
 
+check_input_odd                     * check if address is odd
+    MOVE.B  D6,D7
+    ANDI.B  #1,D7
+    BEQ     even_addr               * If the result was zero, no jump
+    BGT     invalid_addr            
+
+even_addr
+    RTS
+
 *****************
 * Subroutine: ascii_to_hex
 * Converts an ascii number in D2 to hex
@@ -202,19 +214,19 @@ ascii_to_hex
     CMPI.B  #$61,D2
     BLT     invalid_addr            * if input between UC and LC letters, invalid
     CMPI.B  #$67,D2
-    BLT     uc_char_to_hex          * if input is LC letter, then subtract 57 to convert
+    BLT     lc_char_to_hex          * if input is LC letter, then subtract 57 to convert
     BRA     invalid_addr      
 
 no_to_hex
-    SUB.B   #$30,D2
+    SUBI.B  #$30,D2
     BRA     finish_ascii_to_hex
     
 uc_char_to_hex
-    SUB.B   #$37,D2
+    SUBI.B  #$37,D2
     BRA     finish_ascii_to_hex
  
 lc_char_to_hex
-    SUB.B   #$57,D2
+    SUBI.B  #$57,D2
     BRA     finish_ascii_to_hex
          
 invalid_addr
@@ -2246,6 +2258,7 @@ thankMSG    DC.B    'Thank you for using our disassembler. We hope to see you ag
 returnMSG   DC.B    '',CR,LF,0
 dataToPrint DS.L    1       * if data needs to be printed
         	END     start
+
 
 
 
