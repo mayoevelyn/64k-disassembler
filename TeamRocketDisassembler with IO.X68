@@ -61,10 +61,8 @@ valid_id  EQU %10000000
 * Please load the program you want decoded into memory first.
 ***************** 
 start
-    BSR     welcome                 * welcome, ask for start/end
-    move.b  #11,d0                  * clear screen
-    move.w  #$ff00,d1
-    trap    #15                     * next page
+    BSR     welcome                 * welcome, ask for start/end                    
+    BSR     clear_screen              * next page
     BSR     clear_all_reg
     BSR     read
     
@@ -100,16 +98,14 @@ check_restart_input
     BEQ     no_input                * lowercase n input
     BRA     bad_input               * neither y or n is bad input
 yes_input
-    MOVE.B  #11,d0                  * clear screen
-    MOVE.W  #$ff00,d1
-    TRAP    #15
+    BSR     clear_screen
     BRA     start
 
 no_input
     BRA     end
 
 bad_input
-    LEA     restartEMSG,A1        1 * error message
+    LEA     restartEMSG,A1          * error message
     MOVE.B  #14,D0  
     TRAP    #15
     BRA     check_restart_input     * ask again for input
@@ -119,6 +115,12 @@ end
     MOVE.B  #13,D0                  * thank 
     TRAP    #15
     STOP	#$2700                  * stop for now
+    
+clear_screen
+    MOVE.B  #11,D0                  * clear screen
+    MOVE.W  #$ff00,D1
+    TRAP    #15 
+    RTS
 
 ******************
 * Subroutine: Welcome
