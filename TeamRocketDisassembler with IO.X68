@@ -245,7 +245,8 @@ next_word
 	LEA     stack,SP        * Load the SP
 	LEA     jmp_table,A0    * Index into the table
 	BSR.S   read_next_word       * read next word
-	CLR.L   D0              
+	CLR.L   D0
+    MOVE.L	memPtr,A3		* load moving ptr to A3              
     MOVE.W  currWord,D0     * put currWord in D0
     LSR.W   #7,D0
     LSR.W   #5,D0           * shift 12 bits to the right
@@ -278,18 +279,18 @@ instruction_finish_return
 *****************
 * Subroutine: Reads next word
 *****************   
-read_next_word
-    MOVE.L  memptr,A5
+read_next_word 
+    MOVE.L  memPtr,A5
     ADDI.L  #2,memPtr
     MOVE.W  (A5),currWord        
     RTS
-     
+    
 finish_read
     LEA     finishMSG,A1
     MOVE.B  #13,D0
     TRAP    #15
-    BRA     check_restart_input  
-  
+    BRA     check_restart_input      
+
 ***********************************************************
 * Clearing subroutines
 * clears all registers
@@ -1677,9 +1678,9 @@ code7   CMPI.B      #abs_word,D6
         BEQ         ime_data_a
         BNE         bad_ea
 abs_word_a    
-        MOVE.B     validEA,D5
-        ANDI       #valid_aw,D5
-        CMPI       #valid_aw,D5
+        MOVE.B      validEA,D5
+        ANDI        #valid_aw,D5
+        CMPI        #valid_aw,D5
         BNE         bad_ea
         MOVE.B      dol,(A2)+
         MOVE.W      (A3)+,D6
@@ -1695,9 +1696,9 @@ abs_long_a
         BSR         h2a_l
         RTS
 ime_data_a
-        MOVE.B     validEA,D5
-        ANDI       #valid_id,D5
-        CMPI       #valid_id,D5
+        MOVE.B      validEA,D5
+        ANDI        #valid_id,D5
+        CMPI        #valid_id,D5
         BNE         bad_ea
         CMPI.B      #%00000000,size
         BEQ         ime_data_b
@@ -1737,11 +1738,22 @@ ime_data_l
 *	3 - fail at ea
 ******************     
 chk_flag
-		CMPI.B	#0,D4
-		BNE.S	fail
+check_odd                             * check if A3 is odd
+    MOVE.L  A3,memPtr
+    MOVE.L  memPtr,D7
+    ANDI.B #1,D7
+    BEQ    even                       * If the result was zero, the Z flag is set, and beq jumps
+odd
+    ADDI.L  #1,memPtr
+
+even
+    CLR     D7
+        
+	CMPI.B	#0,D4
+	BNE.S	fail
 good
-        MOVE.B	#0,(A2)			* end buffer with 0
-		BRA     print_good
+    MOVE.B	#0,(A2)			* end buffer with 0
+	BRA     print_good
 fail
 		BRA		print_data
 
