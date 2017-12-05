@@ -30,7 +30,7 @@ mask0700		EQU		$FF
 * A1 = message
 * A2 = buffer ptr
 *****************
-    ORG     $400
+    ORG     $1000
 start
 opcode
 	MOVE.W	#ex,currWord	* load test
@@ -1502,7 +1502,7 @@ last_count	DS.B	1		* holds last count bit's value
 last_reg	DS.B	1		* holds last printed reg's count
 reg_count	DS.B	1		* holds count to be reg_printed
 
-        	END     $400 
+        	END     start
 
 
 

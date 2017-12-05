@@ -5,8 +5,9 @@
 * Description: 
 *-----------------------------------------------------------
 
-* Opcode equates
 
+
+* Opcode equates
 stack           EQU     $A000
 *ex				EQU		%0101101000111111
 ex				EQU		%0111101011111111
@@ -22,6 +23,23 @@ mask0503        EQU     %0000000000111000
 mask0403        EQU     %0000000000011000
 mask0706        EQU     %0000000011000000
 mask0700		EQU		$FF
+
+* EA equates
+abs_word  EQU %0000000000000000  
+abs_long  EQU %0000000000000001 
+ime_data  EQU %0000000000000100   
+maskDR    EQU %0000111000000000
+shift6    EQU 6
+shift3    EQU 3
+base16    EQU 16
+valid_d   EQU %00000001
+valid_a   EQU %00000010
+valid_ai  EQU %00000100
+valid_aip EQU %00001000
+valid_aim EQU %00010000
+valid_aw  EQU %00100000
+valid_alw EQU %01000000
+valid_id  EQU %10000000
                
 *****************************************************************************************************************************************************
 * Opcode part starts here
@@ -30,14 +48,13 @@ mask0700		EQU		$FF
 * A1 = message
 * A2 = buffer ptr
 *****************
-    ORG     $400
+    ORG     $1000
 start
+	LSR.W	#4,D0
 opcode
-	MOVE.W	#ex,currWord	* load test
-
+	LEA		$1000,A3		* load moving ptr to A3
+	MOVE.W	(A3)+,currWord	* load test
 	LEA     buffer,A2       * load buffer address/init buffer ptr
-	LEA		memPtr,A3		* load moving ptr to A3
-	ADDQ.L	#4,A3			* move memPtr forward 1 word
 	LEA     stack,SP        * Load the SP
 	LEA     jmp_table,A0    * Index into the table
 	CLR.L   D0              * Zero it
@@ -149,7 +166,6 @@ code0001
 ******************
 code0010
 	MOVE.W  currWord,D0		* move opcode word to D0
-    MOVE.W	D0,D6			* move opcode word to D6
     
     ANDI.W  #mask0806,D0    * mask bits 8-6
     LSR.W   #6,D0           * shift D0 6 bits right
@@ -162,9 +178,10 @@ op_movea_l
     LEA		space3,A1
     BSR		print			* load 3 spaces to buffer
     
-    BSR		ea_movea_src	* load EA to buffer
+    BSR		ea_movea		* load EA to buffer
     MOVE.B  comma,(A2)+		* load a comma to buffer
     MOVE.B  str_a,(A2)+		* load A to buffer
+    MOVE.W	currWord,D6		* move data to D6
     BSR		print_reg		* print register number
     RTS
 op_move_l
@@ -185,7 +202,6 @@ op_move_l
 ******************
 code0011
 	MOVE.W  currWord,D0     * move opcode word to D0
-	MOVE.W	D0,D6			* move opcode word to D6
 	
     ANDI.W  #mask0806,D0    * mask bits 8-6
     LSR.W   #6,D0           * shift D0 6 bits right
@@ -198,9 +214,10 @@ op_movea_w
     LEA		space3,A1
     BSR		print			* load 3 spaces to buffer
     
-    BSR		ea_movea_src	* load EA to buffer
+    BSR		ea_movea		* load EA to buffer
     MOVE.B  comma,(A2)+		* load a comma to buffer
     MOVE.B  str_a,(A2)+		* load A to buffer
+    MOVE.W	currWord,D6		* move data to D6
     BSR		print_reg		* print register number
     RTS
 op_move_w
@@ -341,29 +358,129 @@ op_movem_w
 	LEA		space3,A1
 	BSR		print			* print 3 spaces
 	
-	* handle params
+	* handle params, prep D0 & D1
+	MOVE.W	(A3)+,D1		* load next word (reg list mask)
+	
 	MOVE.W  currWord,D0		* move opcode word to D0
 	ANDI.W	#mask10,D0		* mask bit 10
 	LSR.W   #8,D0
 	LSR.W   #2,D0           * shift 10 bits right
-	
+
 	TST.B	D0				* regmem, else memreg
-	BEQ.S	movem_regmem
-	BRA.S	movem_memreg
-	
-* D0-D7/A0-A7
-movem_regmem
-	
-	MOVE.B  comma,(A2)+		* load a comma to buffer
-	BSR		ea_movem_regmem	* load EA to buffer
-	RTS
+	BEQ		movem_regmem
 	
 * A7-A0/D7-D0
 movem_memreg
 	BSR		ea_movem_memreg	* load EA to buffer
 	MOVE.B  comma,(A2)+		* load a comma to buffer
-	
+	BSR		loop_start		* load list to buffer
 	RTS
+* D0-D7/A0-A7
+movem_regmem
+	BSR		loop_start		* load list to buffer
+	MOVE.B  comma,(A2)+		* load a comma to buffer
+	BSR		ea_movem_regmem	* load EA to buffer
+	RTS
+	
+* pretty list printing
+* instead of 		MOVEM.L (A0)+,D0/D1/D2/A4/A3/A0/A1
+* I'm gonna print 	MOVEM.L (A0)+,D0-D2/A0-A4
+* bear with me.
+* a byte of D0 holds direction
+* a word of D1 holds reg list
+* count is loop count
+* reg_count is the reg you want to print
+* last_reg is the last reg that was set
+* last_count is the value of the bit before
+load_list
+	MOVE.B	#0,count		* init counter
+loop_start
+	MOVE.B	#0,count		* init counter
+	BSR		rotate
+	BCS		loop_trans		* found a starting reg
+	
+	ADDI.B	#1,count		* count++
+	BRA		loop_start		* haven't found a starting reg
+loop_trans
+	MOVE.B	count,reg_count
+	BSR		reg_print		* print starting reg
+	MOVE.B	count,last_reg	* set last reg
+	MOVE.B	#1,last_count	* set last count
+	ADDI.B	#1,count		* count++
+loop_mid
+	CMPI.B	#15,count		* check if we still need to loop
+	BGT		loop_end		* no more
+	BSR		rotate			* if set
+	BCC		loop_mid_else	* else
+loop_mid_if
+	TST.B	last_count		* if last count 0
+	BEQ		loop_mid_set	* print '/<reg>'
+	
+	ADDI.B	#1,count		* count++
+	MOVE.B	#1,last_count	* set last count 1
+	BRA		loop_mid
+loop_mid_set
+	MOVE.B  slash,(A2)+		* load a / to buffer
+	MOVE.B	count,reg_count
+	BSR		reg_print		* print reg
+	MOVE.B	count,last_reg	* set last reg
+	
+	ADDI.B	#1,count		* count++
+	MOVE.B	#1,last_count	* set last count 1
+	BRA		loop_mid
+loop_mid_else
+	TST.B	last_count		* if last count 1
+	BNE		loop_mid_clear	* print '-<reg>' or nothing
+	
+	ADDI.B	#1,count		* count++
+	MOVE.B	#0,last_count	* set last count 0
+	BRA		loop_mid
+loop_mid_clear
+	MOVE.B	count,D6		* move to D6 for a while
+	SUBI.B	#1,D6			* count - 1 (ending reg)
+	* if last printed reg was not the ending reg,
+	* print the ending reg (-<reg>).
+	* if not, print nothing
+	CMP.B	last_reg,D6
+	BEQ		loop_mid_clear_end
+	
+	MOVE.B  dash,(A2)+		* load a - to buffer
+	MOVE.B	count,reg_count
+	BSR		reg_print		* print reg
+loop_mid_clear_end
+	ADDI.B	#1,count		* count++
+	MOVE.B	#0,last_count	* set last count 0
+	BRA		loop_mid
+loop_end
+	RTS
+	
+* rotate based on direction in D0 byte
+rotate
+	TST.B	D0				* rotate right if memreg
+	BEQ		rotate_left		* left if regmem
+	ROR		#1,D1			* rotate right once, into carry bit
+	RTS
+rotate_left
+	ROL		#1,D1			* rotate left once, into carry bit
+	RTS
+	
+* print reg in reglist based on count in reg_count
+reg_print
+	TST.B	D0				* rotate right if memreg
+	CMPI.B	#8,reg_count	* compare regcount
+	BLE		reg_data		* its a dreg
+reg_addr
+	MOVE.B  str_a,(A2)+		* load A to buffer
+	MOVE.B	reg_count,D6	* prepare to print
+	SUBI.B	#8,D6			* correct reg num
+	BSR		h2a_reg			* load byte to buffer
+	RTS
+reg_data
+	MOVE.B  str_d,(A2)+		* load D to buffer
+	MOVE.B	reg_count,D6	* prepare to print
+	BSR		h2a_reg			* load byte to buffer
+	RTS
+* movem stuff done
 
 op_jsr
 	LEA		str_jsr,A1
@@ -422,6 +539,7 @@ op_lea
 	BSR		ea_lea			* load EA to buffer
     MOVE.B  comma,(A2)+		* load a comma to buffer
     MOVE.B  str_a,(A2)+		* load A to buffer
+    MOVE.W	currWord,D6		* move data to D6
     BSR		print_reg		* print register number
     RTS
 ************************************************************************
@@ -505,22 +623,16 @@ op_bgt
 	
 * Bcc size subroutine, using D1 containing last 8 bits
 bcc_size
-	TST.B	D1				* if displacement byte is 0 
+	LEA		space7,A1
+	BSR		print			* print 7 spaces
+	TST.B	D1				* if displacement byte is 0
 	BEQ.S	bcc_w			* it is .W
 bcc_s
-	BSR		size_s			* if not, print .S
-	LEA		space5,A1
-	BSR		print			* print 5 spaces
-	
 	MOVE.L	memPtrGood,D6	* move current address to D6
 	ADD.L	D1,D6			* add the displacement to address
 	BSR		h2a_l			* print the displaced address
 	RTS
 bcc_w
-	BSR		size_w			* print .W
-	LEA		space5,A1
-	BSR		print			* print 5 spaces
-	
 	MOVE.L	memPtrGood,D6	* move current address to D6
 	MOVE.W	(A3)+,D1		* load next word to D1
 	ADD.L	D1,D6			* add the displacement to address
@@ -547,6 +659,7 @@ code0111
 	BSR		h2a_b			* load data into buffer
 	MOVE.B  comma,(A2)+		* load a comma to buffer
 	MOVE.B  str_d,(A2)+		* load D to buffer
+	MOVE.W	currWord,D6		* move data to D6
 	BSR		print_reg		* print register no
 	
 	RTS
@@ -557,7 +670,7 @@ code0111
 ******************
 code1000
 	MOVE.W  currWord,D0     * move opcode word to D0
-	MOVE.W	D0,D6			* move data to D6
+
     ANDI.W  #mask0806,D0	* mask bits 8-6
     LSR.W   #6,D0			* shift D0 6 bits right
     
@@ -587,6 +700,7 @@ op_or
 * the rest is dest    
 op_or_dest
 	MOVE.B  str_d,(A2)+		* load D to buffer
+	MOVE.W	currWord,D6		* move data to D6
 	BSR		print_reg		* print register no
 	MOVE.B  comma,(A2)+		* load a comma to buffer
 	BSR		ea_or_dest		* handle ea
@@ -595,6 +709,7 @@ op_or_src
 	BSR		ea_or_src		* handle ea
 	MOVE.B  comma,(A2)+		* load a comma to buffer
 	MOVE.B  str_d,(A2)+		* load D to buffer
+	MOVE.W	currWord,D6		* move data to D6
 	BSR		print_reg		* print register no
 	RTS
     
@@ -607,6 +722,7 @@ op_divu
 	BSR		ea_divu			* handle ea
 	MOVE.B  comma,(A2)+		* load a comma to buffer
 	MOVE.B  str_d,(A2)+		* load D to buffer
+	MOVE.W	currWord,D6		* move data to D6
 	BSR		print_reg		* print register no
 	
 	RTS
@@ -617,7 +733,7 @@ op_divu
 ******************
 code1001
 	MOVE.W  currWord,D0     * move opcode word to D0
-	MOVE.W	D0,D6			* move data to D6
+
     ANDI.W  #mask0806,D0	* mask bits 8-6
     LSR.W   #6,D0			* shift D0 6 bits right
     
@@ -647,6 +763,7 @@ code1001
 * the rest is dest    
 op_sub_dest
 	MOVE.B  str_d,(A2)+		* load D to buffer
+	MOVE.W	currWord,D6		* move data to D6
 	BSR		print_reg		* print register no
 	MOVE.B  comma,(A2)+		* load a comma to buffer
 	BSR		ea_sub_dest		* handle ea
@@ -655,6 +772,7 @@ op_sub_src
 	BSR		ea_sub_src		* handle ea
 	MOVE.B  comma,(A2)+		* load a comma to buffer
 	MOVE.B  str_d,(A2)+		* load D to buffer
+	MOVE.W	currWord,D6		* move data to D6
 	BSR		print_reg		* print register no
 	RTS
 
@@ -672,8 +790,7 @@ code1010
 code1011
     MOVE.W  currWord,D0		* move opcode word to D0
     MOVE.W	D0,D1			* move opcode word to D1
-    MOVE.W	D0,D6			* move data to D6
-    
+   
     ANDI.W  #mask08,D0		* mask bit 8
     
     * prep D1 for size
@@ -695,6 +812,7 @@ code1011
 	BSR		ea_cmp			* handle ea
 	MOVE.B  comma,(A2)+		* load a comma to buffer
 	MOVE.B  str_d,(A2)+		* load D to buffer
+	MOVE.W	currWord,D6		* move data to D6
 	BSR		print_reg		* print register no
 	
 	RTS
@@ -705,7 +823,7 @@ code1011
 ******************
 code1100
 	MOVE.W  currWord,D0     * move opcode word to D0
-	MOVE.W	D0,D6			* move data to D6
+
     ANDI.W  #mask0806,D0	* mask bits 8-6
     LSR.W   #6,D0			* shift D0 6 bits right
     
@@ -735,6 +853,7 @@ op_and
 * the rest is dest    
 op_and_dest
 	MOVE.B  str_d,(A2)+		* load D to buffer
+	MOVE.W	currWord,D6		* move data to D6
 	BSR		print_reg		* print register no
 	MOVE.B  comma,(A2)+		* load a comma to buffer
 	BSR		ea_and_dest		* handle ea
@@ -743,6 +862,7 @@ op_and_src
 	BSR		ea_and_src		* handle ea
 	MOVE.B  comma,(A2)+		* load a comma to buffer
 	MOVE.B  str_d,(A2)+		* load D to buffer
+	MOVE.W	currWord,D6		* move data to D6
 	BSR		print_reg		* print register no
 	RTS
 	
@@ -755,6 +875,7 @@ op_muls
 	BSR		ea_muls			* handle ea
 	MOVE.B  comma,(A2)+		* load a comma to buffer
 	MOVE.B  str_d,(A2)+		* load D to buffer
+	MOVE.W	currWord,D6		* move data to D6
 	BSR		print_reg		* print register no
 	
 	RTS
@@ -765,7 +886,6 @@ op_muls
 ******************
 code1101
 	MOVE.W  currWord,D1     * move opcode word to D1
-	MOVE.W	D1,D6			* move data to D6
     ANDI.W  #mask0806,D1	* mask bits 8-6
     LSR.W   #6,D1			* shift D1 6 bits right
     
@@ -796,6 +916,7 @@ op_add
 * the rest is dest    
 op_add_dest
 	MOVE.B  str_d,(A2)+		* load D to buffer
+	MOVE.W	currWord,D6		* move data to D6
 	BSR		print_reg		* print register no
 	MOVE.B  comma,(A2)+		* load a comma to buffer
 	BSR		ea_add_dest		* handle ea
@@ -804,6 +925,7 @@ op_add_src
 	BSR		ea_add_src		* handle ea
 	MOVE.B  comma,(A2)+		* load a comma to buffer
 	MOVE.B  str_d,(A2)+		* load D to buffer
+	MOVE.W	currWord,D6		* move data to D6
 	BSR		print_reg		* print register no
 	RTS
 
@@ -817,6 +939,7 @@ op_adda
 	BSR		ea_adda			* handle ea
 	MOVE.B  comma,(A2)+		* load a comma to buffer
 	MOVE.B  str_a,(A2)+		* load A to buffer
+	MOVE.W	currWord,D6		* move data to D6
 	BSR		print_reg		* print register no
 	
 	RTS
@@ -828,8 +951,7 @@ op_adda
 code1110
 	MOVE.W  currWord,D0		* move opcode word to D0
     MOVE.W	D0,D1			* move opcode word to D1
-    MOVE.W	D0,D6			* move opcode word to D6
-	
+    
     ANDI.W  #mask0706,D1	* mask bits 7-6
     LSR.W   #6,D1			* shift D1 6 bits right
         
@@ -844,10 +966,10 @@ reg_ver
 	ANDI.W  #mask0403,D0	* mask bits 4-3
     LSR.W   #3,D0			* shift D0 3 bits right
     
-    CMPI.B	#0,D0
-    BRA		op_asd			* ASd case
+    TST.B	D0
+    BEQ		op_asd			* ASd case
     CMPI.B	#1,D0
-    BRA		op_lsd			* LSd case
+    BEQ		op_lsd			* LSd case
     
 	* ROd case left
 	CMPI.B	#3,D0			* ensure correct op
@@ -902,11 +1024,13 @@ sr_end
 * else, register src
 sr_reg
 	MOVE.B	str_d,(A2)+		* load D to buffer
+	MOVE.W	currWord,D6		* move data to D6
 	BSR		print_reg		* load reg no to buffer
 	MOVE.B	comma,(A2)+		* load comma to buffer
 	BRA		sr_dest
 sr_imd
 	MOVE.B	pound,(A2)+		* load # to buffer
+	MOVE.W	currWord,D6		* move data to D6
 	BSR		print_reg		* load reg no to buffer
 	MOVE.B	comma,(A2)+		* load comma to buffer
 	BRA		sr_dest
@@ -999,35 +1123,101 @@ code1111
     
 * end of opcodes
 *****************************************************************************************************************************************************
+* start of EA
+*************************************************************
+*ValidEA is a Byte which shows which of the 8 EA are valid for
+*a given instruction each bit represents an EA.
+*Starting from the least significant bit.
+*1st = Dn
+*2nd = An
+*3rd = (An)
+*4th = (An)+
+*5th = -(An)
+*6th = (xxx).W
+*7th = (xxx).L
+*8th = #<Data>
+*For each bit, 1 means is valid, 0 means is not valid. 
+*
+*************************************************************
 *************************************************************
 *Invalid ea: None
 *mode-bits:3-5 reg-bits:0-2 size-bits:12-13
 *************************************************************
-ea_move_src  RTS
+ea_0500
+              *Mask source mode
+              MOVE.W        currWord,D5
+              ANDI.W        #mask0503,D5
+              LSR.W         #shift3,D5
+              
+              *Mask source Register
+              MOVE.W        currWord,D6
+              ANDI.W        #mask0200,D6
+              
+              
+              *Use mode JMP Table
+              LEA           mode_jmp,A0
+              MULS          #6, D5
+              JSR           0(A0,D5)  
+              RTS
+ea_1106
+              *Mask Dest. mode
+              MOVE.W        currWord,D5
+              ANDI.W        #mask0806,D5
+              LSR.W         #shift6,D5
+    
+              *Mask Dest. Register
+              MOVE.W        currWord,D6
+              ANDI.W        #mask1109,D6
+              LSR.W         #shift6,D6
+              LSR.W         #shift3,D6
+    
+              *Use mode JMP Table
+              LEA           mode_jmp,A0
+              MULS          #6, D5
+              JSR           0(A0,D5)
+              RTS
+
+ea_move_src  
+              MOVE.B  #%11111111,ValidEA
+              JSR     ea_0500
+              RTS
 
 *************************************************************
 *Invalid ea: An, #<data>
 *mode-bits:6-8 reg-bits:9-11
 *************************************************************
-ea_move_dest RTS
+ea_move_dest  
+              MOVE.B  #%01111101,ValidEA   
+              JSR     ea_1106
+              RTS
 
 *************************************************************
 *Invalid ea: None
 *mode-bits:3-5 reg-bits:0-2 size-bits:12-13
 *************************************************************
-ea_movea_src RTS
-
+ea_movea
+              MOVE.B  #%11111111,ValidEA
+              JSR     ea_0500
+              RTS
+              
+ea_moveq RTS
 *************************************************************
 *Invalid ea: Dn, An, #<Data>, (An)+
 *mode-bits:3-5 reg-bits:0-2 size-bits:6 dr-bit:10 -> 0
 *************************************************************
-ea_movem_regmem  RTS
+ea_movem_regmem
+              MOVE.B  #%01110100,ValidEA
+              JSR     ea_0500
+              RTS
 
 *************************************************************
 *Invalid ea: Dn, An, #<Data>, -(An)
 *mode-bits:3-5 reg-bits:0-2 size-bits:6 dr-bit:10 -> 0
 *************************************************************
-ea_movem_memreg  RTS
+ea_movem_memreg
+              MOVE.B  #%01101100,ValidEA
+              JSR     ea_0500
+              RTS
 
 *************************************************************
 *Invalid ea: Dn, An, #<Data>
@@ -1037,56 +1227,230 @@ ea_movem_memreg  RTS
 *100  101  110   Dn + < ea > ? < ea > 
 *************************************************************
 ea_add_dest
-	RTS
+              MOVE.B  #%01111100,ValidEA
+              JSR     ea_0500
+              RTS
 ea_add_src
-	RTS
+              MOVE.B  #%11111111,ValidEA
+              JSR     ea_0500
+              RTS
 
 *************************************************************
 *Invalid ea: none
 *mode-bits:3-5 reg-bits:0-2 Opmode-bits:6-8
 *Opmode Field: 011-word operation 111-long opderation
 *************************************************************
-ea_adda  RTS
+ea_adda
+              MOVE.B  #%11111111,ValidEA
+              JSR     ea_0500
+              RTS
 
 *************************************************************
 *Invalid ea:An, #<Data>
 *mode-bits:3-5 reg-bits:0-2 size-bits:6-7
 *00-B 01-W 10-L
 *************************************************************
-ea_addi  RTS
-
-ea_addq	 RTS
-
+ea_addi
+              MOVE.B  #%01111101,ValidEA
+              JSR     ea_0500
+              RTS
+ea_addq
+              MOVE.B  #%01111111,ValidEA
+              JSR     ea_0500
+              RTS
 ea_sub_dest
-	RTS
+              MOVE.B  #%01111100,ValidEA
+              JSR     ea_0500
+              RTS
 ea_sub_src
-	RTS
-ea_muls  RTS
-
-ea_divu  RTS
-
-ea_lea   RTS
-
-ea_clr   RTS
-
+              MOVE.B  #%11111111,ValidEA
+              JSR     ea_0500
+              RTS
+ea_muls
+              MOVE.B  #%11111101,ValidEA
+              JSR     ea_0500
+              RTS
+ea_divu
+              MOVE.B  #%11111101,ValidEA
+              JSR     ea_0500
+              RTS
+ea_lea
+              MOVE.B  #%01100100,ValidEA
+              JSR     ea_0500
+              RTS
+ea_clr
+              MOVE.B  #%01111101,ValidEA
+              JSR     ea_0500
+              RTS
 ea_and_dest
-	RTS
+              MOVE.B  #%01111100,ValidEA
+              JSR     ea_0500
+              RTS
 ea_and_src
-	RTS
+              MOVE.B  #%11111101,ValidEA
+              JSR     ea_0500
+              RTS
 ea_or_dest
-	RTS
+              MOVE.B  #%01111100,ValidEA
+              JSR     ea_0500
+              RTS
 ea_or_src
-	RTS
-ea_lsd   RTS
-
-ea_asd   RTS
-
-ea_rod   RTS
-
-ea_cmp   RTS
-
-ea_jsr   RTS
+              MOVE.B  #%11111101,ValidEA
+              JSR     ea_0500
+              RTS
+ea_lsd
+              MOVE.B  #%01111100,ValidEA
+              JSR     ea_0500
+              RTS
+ea_asd
+              MOVE.B  #%01111100,ValidEA
+              JSR     ea_0500
+              RTS
+ea_rod
+              MOVE.B  #%01111100,ValidEA
+              JSR     ea_0500
+              RTS
+ea_cmp
+              MOVE.B  #%11111111,ValidEA
+              JSR     ea_0500
+              RTS
+ea_jsr
+              MOVE.B  #%01100100,ValidEA
+              JSR     ea_0500
+              RTS
+              
+mode_jmp   JMP   code0  *Dn - Data Register Direct
+           JMP   code1  *An - Adress Register Direct
+           JMP   code2  *(An) - Address Register Indirect
+           JMP   code3  *(An)+ - Address Register Indirect with post increment 
+           JMP   code4  *-(An) - Address Register Indirect with Pre Decrement
+           JMP   code5  *Invalid
+           JMP   code6  *Invalid
+           JMP   code7  *(xxx).L || (xxx).W Absolute Adress || Immediate
+           
+*Dn - Data Register Direct
+code0   MOVE.B     validEA,D5
+        ANDI       #valid_d,D5
+        CMPI       #valid_d,D5
+        BNE        bad_ea
+        MOVE.B     str_d,(A2)+
+        JSR        hex_to_ascii_b
+        MOVE.B     D7,(A2)+ 
+        RTS
         
+*An - Adress Register Direct
+code1   MOVE.B     validEA,D5
+        ANDI       #valid_a,D5
+        CMPI       #valid_a,D5
+        BNE        bad_ea
+        MOVE.B     str_a,(A2)+
+        JSR        hex_to_ascii_b
+        MOVE.B     D7,(A2)+
+        RTS
+*(An) - Address Register Indirect
+code2   MOVE.B     validEA,D5
+        ANDI       #valid_ai,D5
+        CMPI       #valid_ai,D5
+        BNE        bad_ea
+        MOVE.B     str_lp,(A2)+ 
+        MOVE.B     str_a,(A2)+
+        JSR        hex_to_ascii_b
+        MOVE.B     D7,(A2)+
+        MOVE.B     str_rp,(A2)+  
+        RTS
+        
+*(An)+ - Address Register Indirect with post increment
+code3   MOVE.B     validEA,D5
+        ANDI       #valid_aip,D5
+        CMPI       #valid_aip,D5
+        BNE        bad_ea
+        MOVE.B     str_lp,(A2)+ 
+        MOVE.B     str_a,(A2)+
+        JSR        hex_to_ascii_b
+        MOVE.B     D7,(A2)+
+        MOVE.B     str_rp,(A2)+  
+        MOVE.B     plus,(A2)+
+        RTS
+        
+*-(An) - Address Register Indirect with Pre Decrement 
+code4   MOVE.B     validEA,D5
+        ANDI       #valid_aim,D5
+        CMPI       #valid_aim,D5
+        BNE        bad_ea
+        MOVE.B     minus,(A2)+
+        MOVE.B     str_lp,(A2)+ 
+        MOVE.B     str_a,(A2)+
+        JSR        hex_to_ascii_b
+        MOVE.B     D7,(A2)+
+        MOVE.B     str_rp,(A2)+  
+        RTS
+        
+code5   JMP bad_ea
+        RTS
+
+code6   JMP bad_ea
+        RTS
+
+*(xxx).L || (xxx).W || Absolute Adress
+code7   CMPI.B      #abs_word,D6
+        BEQ         abs_word_a
+        CMPI.B      #abs_long,D6
+        BEQ         abs_long_a
+        CMPI.B      #ime_data,D6
+        BEQ         ime_data_a
+        BNE         bad_ea
+abs_word_a    
+        MOVE.B     validEA,D5
+        ANDI       #valid_aw,D5
+        CMPI       #valid_aw,D5
+        BNE         bad_ea
+        MOVE.B      dol,(A2)+
+        MOVE.W      (A3)+,D6
+        BSR         h2a_w
+        RTS
+abs_long_a
+        MOVE.B     validEA,D5
+        ANDI       #valid_alw,D5
+        CMPI       #valid_alw,D5
+        BNE         bad_ea
+        MOVE.B      dol,(A2)+
+        MOVE.L      (A3)+,D6
+        BSR         h2a_l
+        RTS
+ime_data_a
+        MOVE.B     validEA,D5
+        ANDI       #valid_id,D5
+        CMPI       #valid_id,D5
+        BNE         bad_ea
+        CMPI.B      #%00000000,size
+        BEQ         ime_data_b
+        CMPI.B      #%00000001,size
+        BEQ         ime_data_w
+        CMPI.B      #%00000010,size
+        BEQ         ime_data_l
+        BNE         bad_ea
+        RTS
+ime_data_b
+        MOVE.B      pound,(A2)+
+        MOVE.B      dol,(A2)+
+        MOVE.W      (A3)+,D6
+        BSR         h2a_b
+        RTS
+ime_data_w
+        MOVE.B      pound,(A2)+
+        MOVE.B      dol,(A2)+
+        MOVE.W      (A3)+,D6
+        BSR         h2a_w
+        RTS
+ime_data_l
+        MOVE.B      pound,(A2)+
+        MOVE.B      dol,(A2)+
+        MOVE.L      (A3)+,D6
+        BSR         h2a_l
+        RTS
+* end of EA
+*****************************************************************************************************************************************************
+* start of subroutines
 ******************
 * Subroutine: chk_flag
 * Checks D4.
@@ -1106,11 +1470,20 @@ fail
 ******************
 * Subroutine: bad_op
 * If the opcode is not supported or garbage bits
-* Update flag, then call IO's print line
+* Update flag, then RTS
 ******************
 bad_op
 	MOVE.B	#2,D4			* set flag for bad opcode
     RTS
+    
+******************
+* Subroutine: bad_ea
+* If the ea is not supported or garbage bits
+* Update flag, then RTS
+******************
+bad_ea
+	MOVE.B	#3,D4			* set flag for bad EA
+	RTS
 
 ******************
 * Subroutine: print_data TEMPORARY
@@ -1130,6 +1503,14 @@ print_main
 	TST.B	(A1)        	* check if we hit 00
 	BNE     print_loop      * if not, push next byte to buffer
     RTS
+    
+******************
+* Subroutine: print_byte
+* Loads a byte in A1 to buffer
+******************
+print_byte
+	MOVE.B  (A1)+,(A2)+     * move a byte, and progress both pointers
+	RTS
     
 ******************
 * Subroutine: print_word
@@ -1236,10 +1617,6 @@ size_l
 	MOVE.B	dot,(A2)+
 	MOVE.B	str_l,(A2)+	* size is l
 	BRA		set_l
-size_s
-	MOVE.B	dot,(A2)+
-	MOVE.B	str_b,(A2)+	* size is s
-	BRA		set_s
 	
 ******************
 * Size flag setting subroutines
@@ -1254,9 +1631,6 @@ set_w
 set_l
 	MOVE.B	#2,size		* set size flag l
 	RTS
-set_s
-	MOVE.B	#3,size		* set size flag s
-	RTS
 
 ******************
 * Subroutine: print register
@@ -1267,7 +1641,7 @@ print_reg
 	ANDI.W  #mask1109,D6    * mask bits 11-9 for address reg
     LSR.W   #8,D6
     LSR.W   #1,D6           * shift D6 9 bits right
-    BSR		h2a_b			* load address reg to buffer
+    BSR		h2a_reg			* load address reg to buffer
     RTS
 
 ******************
@@ -1276,10 +1650,9 @@ print_reg
 ******************
 h2a_l
 	SWAP	D6				* to get first word
-	BRA		h2a_w
-	SWAP	D6				* to get second word
 	BSR		h2a_w
-	RTS
+	SWAP	D6				* to get second word
+	BRA		h2a_w
 h2a_w
 	BSR		hex_to_ascii_w	* convert
 	MOVE.L	D7,buffTemp		* load to buffTemp
@@ -1291,6 +1664,12 @@ h2a_b
 	MOVE.W	D7,buffTemp		* load to buffTemp
 	LEA		buffTemp,A1
 	BSR		print_word		* load to buffer
+	RTS
+h2a_reg
+	BSR		hex_to_ascii_b	* convert
+	MOVE.B	D7,buffTemp		* load to buffTemp
+	LEA		buffTemp,A1
+	BSR		print_byte		* load to buffer
 	RTS
 
 ***********************************************************
@@ -1362,10 +1741,9 @@ str_jsr	    DC.B	'JSR',0
 str_rts  	DC.B	'RTS',0
 
 * Size strings
-str_b		DC.B    'B',0
-str_w       DC.B    'W',0
-str_l       DC.B    'L',0
-str_s       DC.B    'S',0
+str_b		DC.B    'B'
+str_w       DC.B    'W'
+str_l       DC.B    'L'
 
 * Misc strings
 space1		DC.B	' ',0
@@ -1375,17 +1753,21 @@ space4		DC.B	'    ',0
 space5		DC.B	'     ',0
 space6		DC.B	'      ',0
 space7		DC.B	'       ',0
-comma		DC.B	',',0
-pound		DC.B	'#',0
-dol			DC.B	'$',0
-eight		DC.B	'8',0
-dot			DC.B	'.',0
+comma		DC.B	','
+pound		DC.B	'#'
+dol			DC.B	'$'
+eight		DC.B	'8'
+dot			DC.B	'.'
+slash		DC.B	'/'
+dash		DC.B	'-'
 
 * EA strings
-str_d		DC.B	'D',0
-str_a		DC.B	'A',0
-str_lp		DC.B	'(',0
-str_rp		DC.B	')',0
+str_d		DC.B	'D'
+str_a		DC.B	'A'
+str_lp		DC.B	'('
+str_rp		DC.B	')'
+plus        DC.B	'+'
+minus       DC.B	'-'
 
 * Variables
 buffer      DS.B    50      * 10b for memory, 10b for opcode
@@ -1395,7 +1777,15 @@ size		DS.B	1		* size for EA
 memPtr      DS.L    1       * moving ptr
 memPtrGood  DS.L    1       * address to print
 buffTemp	DS.L	2		* workaround for loading h2a to buff
-        	END     $400 
+validEA     DS.B    1
+
+* MOVEM vars
+last_count	DS.B	1		* holds last count bit's value
+last_reg	DS.B	1		* holds last printed reg's count
+reg_count	DS.B	1		* holds count to be reg_printed
+
+        	END     start
+
 
 
 
