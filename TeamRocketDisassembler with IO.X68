@@ -1371,24 +1371,17 @@ mem_ver
     LSR.W   #8,D0			* shift D0 8 bits right
     MULU    #6,D0			* Form offset     
     JSR     0(A0,D0)        * Jump indirect with index
+    RTS
     
 jmp_table_1110
 	JMP		op_asr_m
-	RTS
 	JMP		op_asl_m
-	RTS
 	JMP		op_lsr_m
-	RTS
 	JMP		op_lsl_m
-	RTS
 	JMP		op_roxr_m
-	RTS
 	JMP		op_roxl_m
-	RTS
 	JMP		op_ror_m
-	RTS
 	JMP		op_rol_m
-	RTS
 
 op_asr_m
 	LEA		str_asr,A1
@@ -1399,8 +1392,9 @@ op_asl_m
 	BSR		print			* load ASL to buffer
 	BRA		op_asd_m
 op_asd_m
-	LEA		space7,A1
-	BSR		print			* prints 7 spaces
+	BSR		size2			* handle size
+	LEA		space5,A1
+	BSR		print			* prints 5 spaces
 	BSR		ea_asd			* handle ea
 	RTS
 op_lsr_m
@@ -1412,8 +1406,9 @@ op_lsl_m
 	BSR		print			* load LSL to buffer
 	BRA		op_lsd_m
 op_lsd_m
-	LEA		space7,A1
-	BSR		print			* prints 7 spaces
+	BSR		size2			* handle size
+	LEA		space5,A1
+	BSR		print			* prints 5 spaces
 	BSR		ea_lsd			* handle ea
 	RTS
 op_roxr_m
@@ -1428,8 +1423,9 @@ op_rol_m
 	BSR		print			* load ROL to buffer
 	BRA		op_rod_m
 op_rod_m
-	LEA		space7,A1
-	BSR		print			* prints 7 spaces
+	BSR		size2			* handle size
+	LEA		space5,A1
+	BSR		print			* prints 5 spaces
 	BSR		ea_rod			* handle ea
 	RTS
 
@@ -2247,6 +2243,7 @@ thankMSG    DC.B    'Thank you for using our disassembler. We hope to see you ag
 returnMSG   DC.B    '',CR,LF,0
 dataToPrint DS.L    1       * if data needs to be printed
         	END     start
+
 
 
 
