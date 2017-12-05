@@ -341,129 +341,29 @@ op_movem_w
 	LEA		space3,A1
 	BSR		print			* print 3 spaces
 	
-	* handle params, prep D0 & D1
-	MOVE.W	(A3)+,D1		* load next word (reg list mask)
-	
+	* handle params
 	MOVE.W  currWord,D0		* move opcode word to D0
 	ANDI.W	#mask10,D0		* mask bit 10
 	LSR.W   #8,D0
 	LSR.W   #2,D0           * shift 10 bits right
-
+	
 	TST.B	D0				* regmem, else memreg
-	BEQ		movem_regmem
+	BEQ.S	movem_regmem
+	BRA.S	movem_memreg
+	
+* D0-D7/A0-A7
+movem_regmem
+	
+	MOVE.B  comma,(A2)+		* load a comma to buffer
+	BSR		ea_movem_regmem	* load EA to buffer
+	RTS
 	
 * A7-A0/D7-D0
 movem_memreg
 	BSR		ea_movem_memreg	* load EA to buffer
 	MOVE.B  comma,(A2)+		* load a comma to buffer
-	BSR		loop_start		* load list to buffer
+	
 	RTS
-* D0-D7/A0-A7
-movem_regmem
-	BSR		loop_start		* load list to buffer
-	MOVE.B  comma,(A2)+		* load a comma to buffer
-	BSR		ea_movem_regmem	* load EA to buffer
-	RTS
-	
-* pretty list printing
-* instead of 		MOVEM.L (A0)+,D0/D1/D2/A4/A3/A0/A1
-* I'm gonna print 	MOVEM.L (A0)+,D0-D2/A0-A4
-* bear with me.
-* a byte of D0 holds direction
-* a word of D1 holds reg list
-* count is loop count
-* reg_count is the reg you want to print
-* last_reg is the last reg that was set
-* last_count is the value of the bit before
-load_list
-	MOVE.B	#0,count		* init counter
-loop_start
-	MOVE.B	#0,count		* init counter
-	BSR		rotate
-	BCS		loop_trans		* found a starting reg
-	
-	ADDI.B	#1,count		* count++
-	BRA		loop_start		* haven't found a starting reg
-loop_trans
-	MOVE.B	count,reg_count
-	BSR		reg_print		* print starting reg
-	MOVE.B	count,last_reg	* set last reg
-	MOVE.B	#1,last_count	* set last count
-	ADDI.B	#1,count		* count++
-loop_mid
-	CMPI.B	#15,count		* check if we still need to loop
-	BGT		loop_end		* no more
-	BSR		rotate			* if set
-	BCC		loop_mid_else	* else
-loop_mid_if
-	TST.B	last_count		* if last count 0
-	BEQ		loop_mid_set	* print '/<reg>'
-	
-	ADDI.B	#1,count		* count++
-	MOVE.B	#1,last_count	* set last count 1
-	BRA		loop_mid
-loop_mid_set
-	MOVE.B  slash,(A2)+		* load a / to buffer
-	MOVE.B	count,reg_count
-	BSR		reg_print		* print reg
-	MOVE.B	count,last_reg	* set last reg
-	
-	ADDI.B	#1,count		* count++
-	MOVE.B	#1,last_count	* set last count 1
-	BRA		loop_mid
-loop_mid_else
-	TST.B	last_count		* if last count 1
-	BNE		loop_mid_clear	* print '-<reg>' or nothing
-	
-	ADDI.B	#1,count		* count++
-	MOVE.B	#0,last_count	* set last count 0
-	BRA		loop_mid
-loop_mid_clear
-	MOVE.B	count,D6		* move to D6 for a while
-	SUBI.B	#1,D6			* count - 1 (ending reg)
-	* if last printed reg was not the ending reg,
-	* print the ending reg (-<reg>).
-	* if not, print nothing
-	CMP.B	last_reg,D6
-	BEQ		loop_mid_clear_end
-	
-	MOVE.B  dash,(A2)+		* load a - to buffer
-	MOVE.B	count,reg_count
-	BSR		reg_print		* print reg
-loop_mid_clear_end
-	ADDI.B	#1,count		* count++
-	MOVE.B	#0,last_count	* set last count 0
-	BRA		loop_mid
-loop_end
-	RTS
-	
-* rotate based on direction in D0 byte
-rotate
-	TST.B	D0				* rotate right if memreg
-	BEQ		rotate_left		* left if regmem
-	ROR		#1,D1			* rotate right once, into carry bit
-	RTS
-rotate_left
-	ROL		#1,D1			* rotate left once, into carry bit
-	RTS
-	
-* print reg in reglist based on count in reg_count
-reg_print
-	TST.B	D0				* rotate right if memreg
-	CMPI.B	#8,reg_count	* compare regcount
-	BLE		reg_data		* its a dreg
-reg_addr
-	MOVE.B  str_a,(A2)+		* load A to buffer
-	MOVE.B	reg_count,D6	* prepare to print
-	SUBI.B	#8,D6			* correct reg num
-	BSR		h2a_reg			* load byte to buffer
-	RTS
-reg_data
-	MOVE.B  str_d,(A2)+		* load D to buffer
-	MOVE.B	reg_count,D6	* prepare to print
-	BSR		h2a_reg			* load byte to buffer
-	RTS
-* movem stuff done
 
 op_jsr
 	LEA		str_jsr,A1
@@ -605,16 +505,22 @@ op_bgt
 	
 * Bcc size subroutine, using D1 containing last 8 bits
 bcc_size
-	LEA		space7,A1
-	BSR		print			* print 7 spaces
-	TST.B	D1				* if displacement byte is 0
+	TST.B	D1				* if displacement byte is 0 
 	BEQ.S	bcc_w			* it is .W
 bcc_s
+	BSR		size_s			* if not, print .S
+	LEA		space5,A1
+	BSR		print			* print 5 spaces
+	
 	MOVE.L	memPtrGood,D6	* move current address to D6
 	ADD.L	D1,D6			* add the displacement to address
 	BSR		h2a_l			* print the displaced address
 	RTS
 bcc_w
+	BSR		size_w			* print .W
+	LEA		space5,A1
+	BSR		print			* print 5 spaces
+	
 	MOVE.L	memPtrGood,D6	* move current address to D6
 	MOVE.W	(A3)+,D1		* load next word to D1
 	ADD.L	D1,D6			* add the displacement to address
@@ -1226,14 +1132,6 @@ print_main
     RTS
     
 ******************
-* Subroutine: print_byte
-* Loads a byte in A1 to buffer
-******************
-print_byte
-	MOVE.B  (A1)+,(A2)+     * move a byte, and progress both pointers
-	RTS
-    
-******************
 * Subroutine: print_word
 * Loads a word in A1 to buffer
 ******************
@@ -1338,6 +1236,10 @@ size_l
 	MOVE.B	dot,(A2)+
 	MOVE.B	str_l,(A2)+	* size is l
 	BRA		set_l
+size_s
+	MOVE.B	dot,(A2)+
+	MOVE.B	str_b,(A2)+	* size is s
+	BRA		set_s
 	
 ******************
 * Size flag setting subroutines
@@ -1352,6 +1254,9 @@ set_w
 set_l
 	MOVE.B	#2,size		* set size flag l
 	RTS
+set_s
+	MOVE.B	#3,size		* set size flag s
+	RTS
 
 ******************
 * Subroutine: print register
@@ -1362,7 +1267,7 @@ print_reg
 	ANDI.W  #mask1109,D6    * mask bits 11-9 for address reg
     LSR.W   #8,D6
     LSR.W   #1,D6           * shift D6 9 bits right
-    BSR		h2a_reg			* load address reg to buffer
+    BSR		h2a_b			* load address reg to buffer
     RTS
 
 ******************
@@ -1371,9 +1276,10 @@ print_reg
 ******************
 h2a_l
 	SWAP	D6				* to get first word
-	BSR		h2a_w
-	SWAP	D6				* to get second word
 	BRA		h2a_w
+	SWAP	D6				* to get second word
+	BSR		h2a_w
+	RTS
 h2a_w
 	BSR		hex_to_ascii_w	* convert
 	MOVE.L	D7,buffTemp		* load to buffTemp
@@ -1385,12 +1291,6 @@ h2a_b
 	MOVE.W	D7,buffTemp		* load to buffTemp
 	LEA		buffTemp,A1
 	BSR		print_word		* load to buffer
-	RTS
-h2a_reg
-	BSR		hex_to_ascii_b	* convert
-	MOVE.B	D7,buffTemp		* load to buffTemp
-	LEA		buffTemp,A1
-	BSR		print_byte		* load to buffer
 	RTS
 
 ***********************************************************
@@ -1462,9 +1362,10 @@ str_jsr	    DC.B	'JSR',0
 str_rts  	DC.B	'RTS',0
 
 * Size strings
-str_b		DC.B    'B'
-str_w       DC.B    'W'
-str_l       DC.B    'L'
+str_b		DC.B    'B',0
+str_w       DC.B    'W',0
+str_l       DC.B    'L',0
+str_s       DC.B    'S',0
 
 * Misc strings
 space1		DC.B	' ',0
@@ -1474,19 +1375,17 @@ space4		DC.B	'    ',0
 space5		DC.B	'     ',0
 space6		DC.B	'      ',0
 space7		DC.B	'       ',0
-comma		DC.B	','
-pound		DC.B	'#'
-dol			DC.B	'$'
-eight		DC.B	'8'
-dot			DC.B	'.'
-slash		DC.B	'/'
-dash		DC.B	'-'
+comma		DC.B	',',0
+pound		DC.B	'#',0
+dol			DC.B	'$',0
+eight		DC.B	'8',0
+dot			DC.B	'.',0
 
 * EA strings
-str_d		DC.B	'D'
-str_a		DC.B	'A'
-str_lp		DC.B	'('
-str_rp		DC.B	')'
+str_d		DC.B	'D',0
+str_a		DC.B	'A',0
+str_lp		DC.B	'(',0
+str_rp		DC.B	')',0
 
 * Variables
 buffer      DS.B    50      * 10b for memory, 10b for opcode
@@ -1496,14 +1395,7 @@ size		DS.B	1		* size for EA
 memPtr      DS.L    1       * moving ptr
 memPtrGood  DS.L    1       * address to print
 buffTemp	DS.L	2		* workaround for loading h2a to buff
-
-* MOVEM vars
-last_count	DS.B	1		* holds last count bit's value
-last_reg	DS.B	1		* holds last printed reg's count
-reg_count	DS.B	1		* holds count to be reg_printed
-
         	END     $400 
-
 
 
 
