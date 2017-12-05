@@ -61,7 +61,10 @@ valid_id  EQU %10000000
 * Please load the program you want decoded into memory first.
 ***************** 
 start
-    BSR.S   welcome                 * welcome, ask for start/end
+    BSR     welcome                 * welcome, ask for start/end
+    move.b  #11,d0                  * clear screen
+    move.w  #$ff00,d1
+    trap    #15                     * next page
     BSR     clear_all_reg
     BSR     read
     
@@ -97,6 +100,9 @@ check_restart_input
     BEQ     no_input                * lowercase n input
     BRA     bad_input               * neither y or n is bad input
 yes_input
+    MOVE.B  #11,d0                  * clear screen
+    MOVE.W  #$ff00,d1
+    TRAP    #15
     BRA     start
 
 no_input
@@ -281,6 +287,9 @@ instruction_next_page       * resets line counter when equals 1
     TRAP    #15             * ask user to hit enter to next page
     LEA     user_input,A1
     MOVE.B  #2,D0
+    TRAP    #15
+    MOVE.B  #11,d0          * clear screen
+    MOVE.W  #$FF00,D1
     TRAP    #15
 
 instruction_finish_return    
@@ -2258,6 +2267,7 @@ thankMSG    DC.B    'Thank you for using our disassembler. We hope to see you ag
 returnMSG   DC.B    '',CR,LF,0
 dataToPrint DS.L    1       * if data needs to be printed
         	END     start
+
 
 
 
