@@ -342,7 +342,7 @@ op_movem_w
 	BSR		print			* print 3 spaces
 	
 	* handle params, prep D0 & D1
-	MOVE.W	(A3)+,D1		* load next word (reg list mask)
+	MOVE.W	(A3)+,reg_list	* load next word (reg list mask)
 	
 	MOVE.W  currWord,D0		* move opcode word to D0
 	ANDI.W	#mask10,D0		* mask bit 10
@@ -356,30 +356,19 @@ op_movem_w
 movem_memreg
 	BSR		ea_movem_memreg	* load EA to buffer
 	MOVE.B  comma,(A2)+		* load a comma to buffer
-	BSR		loop_start		* load list to buffer
+	BSR		load_list		* load list to buffer
 	RTS
 * D0-D7/A0-A7
 movem_regmem
-	BSR		loop_start		* load list to buffer
+	BSR		load_list		* load list to buffer
 	MOVE.B  comma,(A2)+		* load a comma to buffer
 	BSR		ea_movem_regmem	* load EA to buffer
 	RTS
 	
-* pretty list printing
-* instead of 		MOVEM.L (A0)+,D0/D1/D2/A4/A3/A0/A1
-* I'm gonna print 	MOVEM.L (A0)+,D0-D2/A0-A4
-* bear with me.
-* a byte of D0 holds direction
-* a word of D1 holds reg list
-* count is loop count
-* reg_count is the reg you want to print
-* last_reg is the last reg that was set
-* last_count is the value of the bit before
 load_list
 	MOVE.B	#0,count		* init counter
 loop_start
-	MOVE.B	#0,count		* init counter
-	BSR		rotate
+	BSR		rotate			* put the next bit in carry
 	BCS		loop_trans		* found a starting reg
 	
 	ADDI.B	#1,count		* count++
@@ -387,70 +376,112 @@ loop_start
 loop_trans
 	MOVE.B	count,reg_count
 	BSR		reg_print		* print starting reg
-	MOVE.B	count,last_reg	* set last reg
-	MOVE.B	#1,last_count	* set last count
+	
 	ADDI.B	#1,count		* count++
 loop_mid
-	CMPI.B	#15,count		* check if we still need to loop
-	BGT		loop_end		* no more
-	BSR		rotate			* if set
-	BCC		loop_mid_else	* else
-loop_mid_if
-	TST.B	last_count		* if last count 0
-	BEQ		loop_mid_set	* print '/<reg>'
+	CMPI.B	#16,count		* check if we still need to loop
+	BEQ		loop_done		* no need
+	BSR		rotate			* put the next bit in carry
+	BCS		loop_set		* found next reg
 	
 	ADDI.B	#1,count		* count++
-	MOVE.B	#1,last_count	* set last count 1
-	BRA		loop_mid
-loop_mid_set
+	BRA		loop_mid		* next bit
+loop_set
 	MOVE.B  slash,(A2)+		* load a / to buffer
 	MOVE.B	count,reg_count
-	BSR		reg_print		* print reg
-	MOVE.B	count,last_reg	* set last reg
+	BSR		reg_print		* print starting reg
 	
 	ADDI.B	#1,count		* count++
-	MOVE.B	#1,last_count	* set last count 1
-	BRA		loop_mid
-loop_mid_else
-	TST.B	last_count		* if last count 1
-	BNE		loop_mid_clear	* print '-<reg>' or nothing
-	
-	ADDI.B	#1,count		* count++
-	MOVE.B	#0,last_count	* set last count 0
-	BRA		loop_mid
-loop_mid_clear
-	MOVE.B	count,D6		* move to D6 for a while
-	SUBI.B	#1,D6			* count - 1 (ending reg)
-	* if last printed reg was not the ending reg,
-	* print the ending reg (-<reg>).
-	* if not, print nothing
-	CMP.B	last_reg,D6
-	BEQ		loop_mid_clear_end
-	
-	MOVE.B  dash,(A2)+		* load a - to buffer
-	MOVE.B	count,reg_count
-	BSR		reg_print		* print reg
-loop_mid_clear_end
-	ADDI.B	#1,count		* count++
-	MOVE.B	#0,last_count	* set last count 0
-	BRA		loop_mid
-loop_end
+	BRA		loop_mid		* next bit
+loop_done
 	RTS
+
+** pretty list printing
+** instead of 		MOVEM.L (A0)+,D0/D1/D2/A4/A3/A0/A1
+** I'm gonna print 	MOVEM.L (A0)+,D0-D2/A0-A4
+** bear with me.
+** a byte of D0 holds direction
+** a word of D1 holds reg list
+** count is loop count
+** reg_count is the reg you want to print
+** last_reg is the last reg that was set
+** last_count is the value of the bit before
+*load_list
+*	MOVE.B	#0,count		* init counter
+*loop_start
+*	MOVE.B	#0,count		* init counter
+*	BSR		rotate
+*	BCS		loop_trans		* found a starting reg
+*	
+*	ADDI.B	#1,count		* count++
+*	BRA		loop_start		* haven't found a starting reg
+*loop_trans
+*	MOVE.B	count,reg_count
+*	BSR		reg_print		* print starting reg
+*	MOVE.B	count,last_reg	* set last reg
+*	MOVE.B	#1,last_count	* set last count
+*	ADDI.B	#1,count		* count++
+*loop_mid
+*	CMPI.B	#15,count		* check if we still need to loop
+*	BGT		loop_end		* no more
+*	BSR		rotate			* if set
+*	BCC		loop_mid_else	* else
+*loop_mid_if
+*	TST.B	last_count		* if last count 0
+*	BEQ		loop_mid_set	* print '/<reg>'
+*	
+*	ADDI.B	#1,count		* count++
+*	MOVE.B	#1,last_count	* set last count 1
+*	BRA		loop_mid
+*loop_mid_set
+*	MOVE.B  slash,(A2)+		* load a / to buffer
+*	MOVE.B	count,reg_count
+*	BSR		reg_print		* print reg
+*	MOVE.B	count,last_reg	* set last reg
+*	
+*	ADDI.B	#1,count		* count++
+*	MOVE.B	#1,last_count	* set last count 1
+*	BRA		loop_mid
+*loop_mid_else
+*	TST.B	last_count		* if last count 1
+*	BNE		loop_mid_clear	* print '-<reg>' or nothing
+*	
+*	ADDI.B	#1,count		* count++
+*	MOVE.B	#0,last_count	* set last count 0
+*	BRA		loop_mid
+*loop_mid_clear
+*	MOVE.B	count,D6		* move to D6 for a while
+*	SUBI.B	#1,D6			* count - 1 (ending reg)
+*	* if last printed reg was not the ending reg,
+*	* print the ending reg (-<reg>).
+*	* if not, print nothing
+*	CMP.B	last_reg,D6
+*	BEQ		loop_mid_clear_end
+*	
+*	MOVE.B  dash,(A2)+		* load a - to buffer
+*	MOVE.B	count,reg_count
+*	BSR		reg_print		* print reg
+*loop_mid_clear_end
+*	ADDI.B	#1,count		* count++
+*	MOVE.B	#0,last_count	* set last count 0
+*	BRA		loop_mid
+*loop_end
+*	RTS
 	
 * rotate based on direction in D0 byte
 rotate
 	TST.B	D0				* rotate right if memreg
 	BEQ		rotate_left		* left if regmem
-	ROR		#1,D1			* rotate right once, into carry bit
+rotate_right
+	ROR		reg_list		* rotate right once, into carry bit
 	RTS
 rotate_left
-	ROL		#1,D1			* rotate left once, into carry bit
+	ROL		reg_list		* rotate left once, into carry bit
 	RTS
 	
 * print reg in reglist based on count in reg_count
 reg_print
-	TST.B	D0				* rotate right if memreg
-	CMPI.B	#8,reg_count	* compare regcount
+	CMPI.B	#7,reg_count	* compare regcount
 	BLE		reg_data		* its a dreg
 reg_addr
 	MOVE.B  str_a,(A2)+		* load A to buffer
@@ -1496,6 +1527,7 @@ size		DS.B	1		* size for EA
 memPtr      DS.L    1       * moving ptr
 memPtrGood  DS.L    1       * address to print
 buffTemp	DS.L	2		* workaround for loading h2a to buff
+reg_list	DS.W	1		* holds the reg list word
 
 * MOVEM vars
 last_count	DS.B	1		* holds last count bit's value
@@ -1503,6 +1535,7 @@ last_reg	DS.B	1		* holds last printed reg's count
 reg_count	DS.B	1		* holds count to be reg_printed
 
         	END     start
+
 
 
 
