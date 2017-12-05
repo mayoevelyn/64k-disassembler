@@ -65,7 +65,7 @@ start
 *******************************************************************************************************
 * IO 
 * Input start and end address routines
-* Restart subroutines
+* Restart .routines
 ******************   
 
 ******************
@@ -280,8 +280,7 @@ instruction_finish_return
 *****************   
 read_next_word
     MOVE.L  memptr,A5
-    ADDI.L  #4,memPtr
-    SUB.W   #4,A5
+    ADDI.L  #2,memPtr
     MOVE.W  (A5),currWord        
     RTS
      
@@ -1741,6 +1740,7 @@ chk_flag
 		CMPI.B	#0,D4
 		BNE.S	fail
 good
+        MOVE.B	#0,(A2)			* end buffer with 0
 		BRA     print_good
 fail
 		BRA		print_data
@@ -1770,7 +1770,7 @@ bad_ea
 ******************
 print_good
     BSR     output_memory       * display memory location 
-    BSR     print_buffer        * print the puffer
+    BSR     output_buffer        * print the puffer
     MOVE.L  memPtr,memPtrGood   * set the memPtrGood to memPtr
     RTS
 
@@ -1788,7 +1788,6 @@ print_data
     LEA     space6,A1       
     TRAP    #15             * add 2 spaces
     CLR     D1
-    SUBI.W  #1,currWord
     ADD.W   currWord,D6
     BSR     hex_to_ascii_w
     LEA     dataToPrint,A1  
@@ -1845,9 +1844,6 @@ output_memory_finish
 * A1 - buffer
 * D1 - keeps buffer length in bytes
 ******************
-print_buffer
-    MOVE.L  memPtr,memPtrGood   * sets memPtrGood to memPtr 
-
 output_buffer
     LEA     buffer,A1
     CLR     D0
