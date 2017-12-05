@@ -394,16 +394,14 @@ op_addi
     * loads source to buffer
     MOVE.B  pound,(A2)+		* load a # to buffer
     MOVE.B	dol,(A2)+		* load a $ to buffer
-    CMPI.B	#0,D1			* byte 
-    BRA		addi_byte
-    CMPI.B	#1,D1			* word
-    BRA		addi_word
-    CMPI.B	#2,D1			* long
-    BRA		addi_long
+    CMPI.B	#1,D1			* word case
+    BEQ		addi_word
+    CMPI.B	#2,D1			* long case
+    BEQ		addi_long
     
+* byte case left
 addi_byte
-	ADDQ.L	#2,A3			* move memPtr forward 1 byte
-	MOVE.B	(A3)+,D6
+	MOVE.W	(A3)+,D6
 	BSR		h2a_b			* load to buffer
 	MOVE.B  comma,(A2)+		* load a comma to buffer
 	BSR		ea_addi			* load EA to buffer
@@ -855,7 +853,8 @@ op_addq
     LSR.W   #1,D6           * shift D6 9 bits right
     TST.B	D6				* if 0
     BEQ		print8			* print 8
-    BSR		h2a_b			* load address reg to buffer
+    BSR		h2a_reg			* load address reg to buffer
+    MOVE.B  comma,(A2)+		* load a comma to buffer
     BRA.S	addq_ea			* print ea part
 print8
 	MOVE.B  eight,(A2)+		* load an 8 to buffer
@@ -934,7 +933,7 @@ code0111
 	BSR		print			* print 5 spaces
 	
 	MOVE.B  pound,(A2)+		* load a # to buffer
-	BSR		h2a_b			* load data into buffer
+	BSR		h2a_reg			* load data into buffer
 	MOVE.B  comma,(A2)+		* load a comma to buffer
 	MOVE.B  str_d,(A2)+		* load D to buffer
 	MOVE.W	currWord,D6		* move data to D6
@@ -2205,6 +2204,7 @@ thankMSG    DC.B    'Thank you for using our disassembler. We hope to see you ag
 returnMSG   DC.B    '',CR,LF,0
 dataToPrint DS.L    1       * if data needs to be printed
         	END     start
+
 
 
 

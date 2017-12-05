@@ -50,7 +50,7 @@ valid_id  EQU %10000000
 *****************
     ORG     $1000
 start
-	LSR.W	#4,D0
+	ADDI.W	#$4E71,D1
 opcode
 	LEA		$1000,A3		* load moving ptr to A3
 	MOVE.W	(A3)+,currWord	* load test
@@ -116,13 +116,12 @@ op_addi
     * loads source to buffer
     MOVE.B  pound,(A2)+		* load a # to buffer
     MOVE.B	dol,(A2)+		* load a $ to buffer
-    CMPI.B	#0,D1			* byte 
-    BRA		addi_byte
-    CMPI.B	#1,D1			* word
-    BRA		addi_word
-    CMPI.B	#2,D1			* long
-    BRA		addi_long
+    CMPI.B	#1,D1			* word case
+    BEQ		addi_word
+    CMPI.B	#2,D1			* long case
+    BEQ		addi_long
     
+* byte case left
 addi_byte
 	ADDQ.L	#2,A3			* move memPtr forward 1 byte
 	MOVE.B	(A3)+,D6
@@ -1785,6 +1784,7 @@ last_reg	DS.B	1		* holds last printed reg's count
 reg_count	DS.B	1		* holds count to be reg_printed
 
         	END     start
+
 
 
 
