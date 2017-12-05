@@ -96,13 +96,11 @@ char_to_ascii
 
 START:                  ; first instruction of program
         LEA     $5000,A2
-        MOVE.W  A5,(A5)
+        ROL     $43AC
         MOVE.B  #%00000000,size
         LEA     $103A,A3
         MOVE.W  (A3)+,currWord
-        JSR     ea_move_src
-        MOVE.B  comma,(A2)+
-        JSR     ea_move_dest
+        JSR     ea_rol
         
     SIMHALT             ; halt simulator
 *************************************************************
@@ -384,6 +382,7 @@ abs_word_a
         MOVE.B     validEA,D5
         ANDI       #valid_aw,D5
         CMPI       #valid_aw,D5
+        BNE         bad_ea
         MOVE.B      hex_sign,(A2)+
         MOVE.W      (A3)+,D6
         BSR         h2a_w
@@ -393,6 +392,7 @@ abs_long_a
         MOVE.B     validEA,D5
         ANDI       #valid_alw,D5
         CMPI       #valid_alw,D5
+        BNE         bad_ea
         MOVE.B      hex_sign,(A2)+
         MOVE.L      (A3)+,D6
         BSR         h2a_l
@@ -433,7 +433,7 @@ ime_data_l
         MOVE.L      (A3)+,D6
         BSR         h2a_l
         RTS
-        
+     
 ******************
 * Subroutine: print
 * Prints the 0 terminated string
