@@ -8,8 +8,8 @@
 * IO equates
 CR              EQU     $0D         * carriage return
 LF              EQU     $0A         * line feed
-user_input      EQU     $670
-min_addr        EQU     $00001000
+user_input      EQU     $600
+min_addr        EQU     $00006000
 max_addr        EQU     $00FFFFFF
 
 * Opcode equates
@@ -1343,13 +1343,21 @@ mem_ver
     
 jmp_table_1110
 	JMP		op_asr_m
+	RTS
 	JMP		op_asl_m
+	RTS
 	JMP		op_lsr_m
+	RTS
 	JMP		op_lsl_m
+	RTS
 	JMP		op_roxr_m
+	RTS
 	JMP		op_roxl_m
+	RTS
 	JMP		op_ror_m
+	RTS
 	JMP		op_rol_m
+	RTS
 
 op_asr_m
 	LEA		str_asr,A1
@@ -1794,7 +1802,7 @@ print_good
 ******************
 print_data
     BSR     output_memory   * display memory location
-    ADDI.L  #4,memPtrGood   * increment memPtrGood, put 
+    ADDI.L  #2,memPtrGood   * increment memPtrGood, put 
     MOVE.L  memPtrGood,memPtr
     LEA     str_data,A1
     MOVE.B  #14,D0
@@ -2208,6 +2216,7 @@ thankMSG    DC.B    'Thank you for using our disassembler. We hope to see you ag
 returnMSG   DC.B    '',CR,LF,0
 dataToPrint DS.L    1       * if data needs to be printed
         	END     start
+
 
 
 
