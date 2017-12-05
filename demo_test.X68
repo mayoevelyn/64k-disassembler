@@ -19,7 +19,13 @@ start		EQU	$00007000	* ORG and END address
 		NOP			*Required
 		RTS			*Required
 
-
+		CMPA.W	D2,A4
+		CMPA.W	D2,A4
+		CMPA.W	D2,A4
+		CMPA.W	D2,A4
+		CMPA.W	D2,A4
+		CMPA.W	D2,A4
+		
 * This is a group of ADD instructions
 add_start	ADD.W   D1,D2
                 ADDI.W	#$4E71,D1
@@ -86,6 +92,7 @@ multiply	MULS	D0,D3		*Optional instruction
 	
 
 		END	start
+
 
 
 

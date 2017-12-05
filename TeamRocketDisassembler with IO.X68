@@ -635,7 +635,7 @@ op_movem_w
 	BSR		print			* print 3 spaces
 	
 	* handle params, prep D0 & D1
-	MOVE.W	(A3)+,D1		* load next word (reg list mask)
+	MOVE.W	(A3)+,reg_list	* load next word (reg list mask)
 	
 	MOVE.W  currWord,D0		* move opcode word to D0
 	ANDI.W	#mask10,D0		* mask bit 10
@@ -734,10 +734,11 @@ loop_end
 rotate
 	TST.B	D0				* rotate right if memreg
 	BEQ		rotate_left		* left if regmem
-	ROR		#1,D1			* rotate right once, into carry bit
+rotate_right
+	ROR		reg_list		* rotate right once, into carry bit
 	RTS
 rotate_left
-	ROL		#1,D1			* rotate left once, into carry bit
+	ROL		reg_list		* rotate left once, into carry bit
 	RTS
 	
 * print reg in reglist based on count in reg_count
@@ -996,6 +997,7 @@ op_divu
 	LEA		space6,A1
 	BSR		print			* print 6 spaces
 	
+	BSR		set_w			* set size w
 	BSR		ea_divu			* handle ea
 	MOVE.B  comma,(A2)+		* load a comma to buffer
 	MOVE.B  str_d,(A2)+		* load D to buffer
@@ -1149,6 +1151,7 @@ op_muls
 	LEA		space6,A1
 	BSR		print			* print 6 spaces
 	
+	BSR		set_w			* set size w
 	BSR		ea_muls			* handle ea
 	MOVE.B  comma,(A2)+		* load a comma to buffer
 	MOVE.B  str_d,(A2)+		* load D to buffer
@@ -1297,7 +1300,7 @@ sr_end
 	ANDI.W  #mask05,D0		* mask bit 5 (i/r field)
 	LSR.W   #5,D0			* shift D0 5 bits right
 	TST.B	D0
-	BEQ		sr_imd		* imediate src if i/r field 0
+	BEQ		sr_imd			* imediate src if i/r field 0
 * else, register src
 sr_reg
 	MOVE.B	str_d,(A2)+		* load D to buffer
@@ -2190,6 +2193,7 @@ linecounter DS.B    1       * counts lines
 last_count	DS.B	1		* holds last count bit's value
 last_reg	DS.B	1		* holds last printed reg's count
 reg_count	DS.B	1		* holds count to be reg_printed
+reg_list	DS.W	1		* holds the reg list word
 
 * I/O strings
 welcomeMSG  DC.B    'Welcome to the Motorola 68000 disassembler!',CR,LF,0
